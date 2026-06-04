@@ -80,9 +80,9 @@ describe('beats', () => {
     expect(beats(r2, r1)).toBe(true)
   })
   it('root same primary: compares secondary', () => {
-    const r1: Play = { type: HandType.Root, cards: [], primaryRank: Rank.Five, secondaryRank: Rank.Three }
+    const r1: Play = { type: HandType.Root, cards: [], primaryRank: Rank.Five, secondaryRank: Rank.Two }
     const r2: Play = { type: HandType.Root, cards: [], primaryRank: Rank.Five, secondaryRank: Rank.Four }
-    expect(beats(r2, r1)).toBe(true)
+    expect(beats(r1, r2)).toBe(true)
   })
   it('bike: compares by pair', () => {
     const b1: Play = { type: HandType.Bike, cards: [], primaryRank: Rank.Five }
