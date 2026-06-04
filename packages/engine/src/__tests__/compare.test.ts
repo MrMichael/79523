@@ -29,6 +29,24 @@ describe('compareCards', () => {
   })
 })
 
+describe('full card order', () => {
+  it('ascending power: 4<6<8<10<J<Q<K<A<3<2<5<9<7', () => {
+    const ascending = [Rank.Four, Rank.Six, Rank.Eight, Rank.Ten, Rank.Jack, Rank.Queen, Rank.King, Rank.Ace, Rank.Three, Rank.Two, Rank.Five, Rank.Nine, Rank.Seven]
+    for (let i = 0; i < ascending.length - 1; i++) {
+      expect(compareCards({suit:Suit.Diamond, rank:ascending[i+1]}, {suit:Suit.Spade, rank:ascending[i]})).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('suit order', () => {
+  it('Spade > Heart > Club > Diamond', () => {
+    const suits = [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond]
+    for (let i = 0; i < suits.length - 1; i++) {
+      expect(compareCards({suit:suits[i], rank:Rank.Ace}, {suit:suits[i+1], rank:Rank.Ace})).toBeGreaterThan(0)
+    }
+  })
+})
+
 describe('getSmallestCard', () => {
   it('returns lowest rank', () => {
     const cards = [{suit:Suit.Spade, rank:Rank.Seven}, {suit:Suit.Heart, rank:Rank.Four}, {suit:Suit.Club, rank:Rank.Nine}]

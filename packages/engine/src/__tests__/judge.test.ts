@@ -58,6 +58,40 @@ describe('identify', () => {
   })
 })
 
+describe('identify edge cases', () => {
+  it('rejects 4 cards', () => {
+    expect(identify([
+      c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven),
+      c(Suit.Club, Rank.Five), c(Suit.Diamond, Rank.Five),
+    ])).toBeNull()
+  })
+  it('rejects 6 cards', () => {
+    expect(identify([
+      c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven),
+      c(Suit.Club, Rank.Five), c(Suit.Diamond, Rank.Five),
+      c(Suit.Spade, Rank.Three), c(Suit.Heart, Rank.Three),
+    ])).toBeNull()
+  })
+  it('full house (3+2) is NOT valid root', () => {
+    expect(identify([
+      c(Suit.Spade, Rank.Five), c(Suit.Heart, Rank.Five), c(Suit.Club, Rank.Five),
+      c(Suit.Diamond, Rank.King), c(Suit.Spade, Rank.King),
+    ])).toBeNull()
+  })
+  it('correctly identifies all 5 hand types', () => {
+    const single = identify([c(Suit.Spade, Rank.Seven)])
+    const pair = identify([c(Suit.Spade, Rank.Five), c(Suit.Heart, Rank.Five)])
+    const bike = identify([c(Suit.Spade, Rank.Five), c(Suit.Heart, Rank.Five), c(Suit.Club, Rank.Four)])
+    const triple = identify([c(Suit.Spade, Rank.Two), c(Suit.Heart, Rank.Two), c(Suit.Club, Rank.Two)])
+    const root = identify([c(Suit.Spade, Rank.Ace), c(Suit.Heart, Rank.Ace), c(Suit.Club, Rank.King), c(Suit.Diamond, Rank.King), c(Suit.Spade, Rank.Four)])
+    expect(single!.type).toBe('single')
+    expect(pair!.type).toBe('pair')
+    expect(bike!.type).toBe('bike')
+    expect(triple!.type).toBe('triple')
+    expect(root!.type).toBe('root')
+  })
+})
+
 describe('beats', () => {
   it('same type: higher rank wins', () => {
     const p1: Play = { type: HandType.Single, cards: [c(Suit.Spade, Rank.Seven)], primaryRank: Rank.Seven }
