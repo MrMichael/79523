@@ -1,0 +1,15 @@
+{
+  "name": "79523",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @79523/server dev & pnpm --filter @79523/client dev",
+    "dev:server": "pnpm --filter @79523/server dev",
+    "dev:client": "pnpm --filter @79523/client dev",
+    "test": "pnpm --filter @79523/engine test && pnpm --filter @79523/server test",
+    "test:engine": "pnpm --filter @79523/engine test",
+    "test:server": "pnpm --filter @79523/server test"
+  },
+  "devDependencies": {
+    "pnpm": "^8.15.9"
+  }
+}
