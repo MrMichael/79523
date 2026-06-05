@@ -2,9 +2,9 @@ import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents } from './types'
 import { createPlayer, getPlayer, setPlayerReady, setPlayerConnected } from './player'
-import { getRoom, joinRoom } from './room'
+import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
 import { initGame, handlePlay, handlePass, findLeadPlayer, settleGame } from './game-machine'
-import { calculateScore } from '@79523/engine'
+import { Rank, calculateScore } from '@79523/engine'
 
 export function setupWebSocket(httpServer: HttpServer) {
   const io = new Server<ClientEvents, ServerEvents>(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } })
@@ -14,7 +14,6 @@ export function setupWebSocket(httpServer: HttpServer) {
     let currentRoomCode: string | null = null
 
     socket.on('create_room', ({ name, maxPlayers }) => {
-      const { createRoom } = require('./room')
       const room = createRoom(maxPlayers)
       const player = createPlayer(socket.id, name)
       joinRoom(room.code, player)
@@ -64,7 +63,6 @@ export function setupWebSocket(httpServer: HttpServer) {
       io.to(currentRoomCode).emit('play_made', { playerId: currentPlayerId, play: { type: 'play', cards }, tableCards: game.tableCards })
       if (result.roundWinner) {
         const scoreCards = game.tableCards.filter(c => {
-          const { Rank } = require('@79523/engine')
           return c.rank === Rank.Five || c.rank === Rank.Ten || c.rank === Rank.King
         })
         io.to(currentRoomCode).emit('round_result', {
@@ -117,7 +115,6 @@ export function setupWebSocket(httpServer: HttpServer) {
         setTimeout(() => {
           const player = getPlayer(currentPlayerId!)
           if (player && !player.connected) {
-            const { leaveRoom } = require('./room')
             leaveRoom(currentRoomCode!, currentPlayerId!)
             io.to(currentRoomCode!).emit('player_left', { playerId: currentPlayerId!, players: [] })
           }
