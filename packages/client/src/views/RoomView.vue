@@ -1,25 +1,136 @@
 <template>
   <div class="room">
-    <h2>Room: {{ code }}</h2>
-    <PlayerList :players="players" />
-    <p v-if="!amReady">Waiting for all players to ready...</p>
-    <button @click="ready" :disabled="amReady">Ready</button>
+    <div class="room-header">
+      <h2>房间 {{ roomCode }}</h2>
+      <span class="room-code-label">房间码</span>
+    </div>
+
+    <div class="player-section">
+      <div class="player-item" v-for="p in players" :key="p.id">
+        <span class="status-dot" :class="{ ready: p.ready, connected: p.connected }"></span>
+        <span class="player-name">{{ p.name }}</span>
+        <span class="player-state">{{ p.ready ? '✓ 已准备' : '等待中...' }}</span>
+      </div>
+      <div v-if="players.length === 0" class="empty-hint">等待其他玩家加入...</div>
+    </div>
+
+    <div class="room-footer">
+      <p v-if="!amReady" class="hint">所有人准备后自动开始</p>
+      <p v-else class="hint ready-text">已准备，等待其他玩家...</p>
+      <button @click="handleReady" :disabled="amReady" class="ready-btn">
+        {{ amReady ? '已准备' : '准备' }}
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute } from 'vue-router'
-import PlayerList from '@/components/room/PlayerList.vue'
+import { onMounted } from 'vue'
+import { useSocket } from '@/composables/useSocket'
+import { useRoom } from '@/composables/useRoom'
 
-const route = useRoute()
-const code = route.params.code as string
-const players = ref<any[]>([])
-const amReady = ref(false)
+const { connect } = useSocket()
+const { roomCode, players, amReady, ready, setupListeners } = useRoom()
 
-function ready() { amReady.value = true }
+onMounted(() => {
+  connect()
+  setupListeners()
+})
+
+function handleReady() {
+  ready()
+}
 </script>
 
 <style scoped>
-.room { padding: 2rem; }
+.room {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+.room-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+.room-header h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+.room-code-label {
+  font-size: 0.85rem;
+  color: #888;
+  background: #f0f0f0;
+  padding: 0.2rem 0.8rem;
+  border-radius: 4px;
+}
+.player-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.player-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: #f8f9fa;
+  border-radius: 10px;
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ccc;
+  flex-shrink: 0;
+}
+.status-dot.connected {
+  background: #ff9800;
+}
+.status-dot.ready {
+  background: #4caf50;
+}
+.player-name {
+  font-weight: 600;
+  flex: 1;
+}
+.player-state {
+  font-size: 0.85rem;
+  color: #888;
+}
+.empty-hint {
+  text-align: center;
+  color: #aaa;
+  padding: 2rem;
+}
+.room-footer {
+  text-align: center;
+  padding-top: 1rem;
+}
+.hint {
+  font-size: 0.9rem;
+  color: #888;
+  margin-bottom: 0.75rem;
+}
+.ready-text {
+  color: #4caf50;
+}
+.ready-btn {
+  width: 100%;
+  padding: 0.9rem;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 12px;
+  background: #4caf50;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+.ready-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
 </style>

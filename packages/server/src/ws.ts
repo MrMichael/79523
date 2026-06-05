@@ -36,6 +36,7 @@ export function setupWebSocket(httpServer: HttpServer) {
       setPlayerReady(currentPlayerId, true)
       const room = getRoom(currentRoomCode)
       if (!room) return
+      io.to(currentRoomCode).emit('players_updated', { players: room.players.map(p => ({ ...p, socketId: '' })) })
       if (room.players.every(p => p.ready) && room.players.length >= 2) {
         const game = initGame(room.players.map(p => p.id))
         room.game = game
@@ -116,7 +117,11 @@ export function setupWebSocket(httpServer: HttpServer) {
           const player = getPlayer(currentPlayerId!)
           if (player && !player.connected) {
             leaveRoom(currentRoomCode!, currentPlayerId!)
-            io.to(currentRoomCode!).emit('player_left', { playerId: currentPlayerId!, players: [] })
+            const updated = getRoom(currentRoomCode!)
+            io.to(currentRoomCode!).emit('player_left', {
+              playerId: currentPlayerId!,
+              players: updated ? updated.players.map(p => ({ ...p, socketId: '' })) : [],
+            })
           }
         }, 30000)
       }
