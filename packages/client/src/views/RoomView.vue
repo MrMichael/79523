@@ -1,8 +1,12 @@
 <template>
   <div class="room">
     <div class="room-header">
-      <h2>房间 {{ roomCode }}</h2>
-      <span class="room-code-label">房间码</span>
+      <h2>房间</h2>
+      <div class="code-display">
+        <span class="code-text">{{ roomCode }}</span>
+        <button class="copy-btn" @click="copyCode">复制</button>
+      </div>
+      <p class="share-hint">把房间码发给好友，他们在首页输入即可加入</p>
     </div>
 
     <div class="player-section">
@@ -40,6 +44,10 @@ onMounted(() => {
 function handleReady() {
   ready()
 }
+
+function copyCode() {
+  navigator.clipboard.writeText(roomCode.value)
+}
 </script>
 
 <style scoped>
@@ -56,15 +64,35 @@ function handleReady() {
   margin-bottom: 1.5rem;
 }
 .room-header h2 {
-  font-size: 1.5rem;
-  margin-bottom: 0.25rem;
+  font-size: 1.3rem;
+  margin-bottom: 0.75rem;
 }
-.room-code-label {
+.code-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+.code-text {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: #333;
+}
+.copy-btn {
+  padding: 0.4rem 1rem;
   font-size: 0.85rem;
-  color: #888;
-  background: #f0f0f0;
-  padding: 0.2rem 0.8rem;
-  border-radius: 4px;
+  border: 2px solid #2196f3;
+  border-radius: 8px;
+  background: white;
+  color: #2196f3;
+  cursor: pointer;
+  font-weight: 600;
+}
+.share-hint {
+  font-size: 0.8rem;
+  color: #999;
+  margin-top: 0.75rem;
 }
 .player-section {
   flex: 1;
