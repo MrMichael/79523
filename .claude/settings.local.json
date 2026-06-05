@@ -10,7 +10,10 @@
       "Bash(timeout 10 npx -y @playwright/mcp@0.0.69 --help)",
       "Bash(timeout 10 npx -y @modelcontextprotocol/server-sequential-thinking@2025.12.18 --help)",
       "Bash(rtk ls *)",
-      "Bash(rtk git *)"
+      "Bash(rtk git *)",
+      "Bash(pkill -f \"tsx.*index.ts\")",
+      "Bash(npx pnpm *)",
+      "Bash(node test-room.mjs)"
     ]
   }
 }
