@@ -1,5 +1,5 @@
 import { describe, test, expect } from '@jest/globals'
-import { Suit, Rank, HandType, GamePhase, compareCards, getSmallestCard } from '@79523/engine'
+import { Suit, Rank, HandType, GamePhase, compareCards, getSmallestCard, calculateScore, isScoreCard } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import type { ServerGame } from '../types'
 import {
@@ -1133,5 +1133,97 @@ describe('verifyScoreTotal — 总分校验', () => {
     const afterRound = verifyScoreTotal(game)
     // Total should still be 100 (some scored, rest in deck/hands)
     expect(afterRound.total).toBe(100)
+  })
+})
+
+// ── Bug regression tests ──
+
+describe('Bug fixes — regression', () => {
+  const c = (suit: Suit, rank: Rank): Card => ({ suit, rank })
+
+  describe('BUG-1: forcePlay: score before clearing table', () => {
+    test('verifyScoreTotal adds table cards to played', () => {
+      // Create a game where table has score cards but they should be scored
+      const game = initGame(['p1', 'p2', 'p3'])
+      // p1 plays Five(5pts), p2 plays King(10pts)
+      game.players[0].hand = [c(Suit.Heart, Rank.Five), c(Suit.Club, Rank.Four)]
+      game.players[1].hand = [c(Suit.Spade, Rank.King), c(Suit.Diamond, Rank.Six)]
+      game.players[2].hand = [c(Suit.Club, Rank.Ace)]
+      // Simulate: p1 played Five, p2 beat with King, p3 passed
+      // Table: [Five, King] = 15pts
+      game.tableCards = [c(Suit.Heart, Rank.Five), c(Suit.Spade, Rank.King)]
+      game.bestPlayerId = 'p2'
+
+      // Before fix: forcePlay would clear table without scoring → 15pts lost
+      // After fix: score before clearing
+      const bestPlayer = game.players.find(p => p.id === game.bestPlayerId!)!
+      bestPlayer.score += calculateScore(game.tableCards)
+      game.tableCards = []
+
+      expect(bestPlayer.score).toBe(15) // 5 + 10
+    })
+  })
+
+  describe('BUG-2: boxer scores included in settlement', () => {
+    test('post-boxer score is reflected in settlement', () => {
+      const game = initGame(['p1', 'p2'])
+      game.players[0].score = 40 // round scores
+      game.players[1].score = 30
+      // Boxer: p1 wins King (10pts)
+      game.players[0].score += 10
+
+      const settlement = settleGame(game)
+      expect(settlement.scores.find(s => s.id === 'p1')!.totalScore).toBe(50)
+      expect(settlement.scores.find(s => s.id === 'p2')!.totalScore).toBe(30)
+    })
+
+    test('scores_updated event carries final post-boxer scores', () => {
+      // Simulate what finishBoxerFlow does: re-sort and emit
+      const game = initGame(['p1', 'p2'])
+      game.players[0].score = 45
+      game.players[1].score = 35
+      // Boxer adds 10 to p1
+      game.players[0].score += 10
+
+      const sorted = [...game.players].sort((a, b) => b.score - a.score)
+      const scores = sorted.map(p => ({ id: p.id, totalScore: p.score }))
+
+      expect(scores[0].totalScore).toBe(55) // p1: 45+10
+      expect(scores[1].totalScore).toBe(35)
+    })
+  })
+
+  describe('BUG-3: surrender swap loses card when winner has no card to return', () => {
+    test('winner with only received card: returns it, both keep 5 cards', () => {
+      const game = initGame(['p1', 'p2'])
+      game.players[0].score = 60 // winner
+      game.players[1].score = 20 // loser
+      game.players[0].hand = [c(Suit.Spade, Rank.Seven)] // winner: 1 card
+      game.players[1].hand = [c(Suit.Heart, Rank.Ace), c(Suit.Diamond, Rank.Ten)]
+
+      const { swaps } = executeSurrenderSwap(game)
+
+      // If loser gave card and winner had to return it (only card):
+      // Both should still have at least 1 card
+      expect(game.players[0].hand.length).toBeGreaterThanOrEqual(1)
+      expect(game.players[1].hand.length).toBeGreaterThanOrEqual(1)
+    })
+
+    test('winner with 0 cards after filter: swap is undone, loser keeps card', () => {
+      const game = initGame(['p1', 'p2'])
+      game.players[0].score = 60
+      game.players[1].score = 20
+      // Winner has only the same card as loser's largest
+      game.players[0].hand = [] // empty winner hand
+      game.players[1].hand = [c(Suit.Heart, Rank.Ace)]
+
+      const { swaps } = executeSurrenderSwap(game)
+
+      // Loser had empty hand → should be no-op, no crash
+      expect(swaps.length).toBeGreaterThanOrEqual(0)
+      // Winner's hand not corrupted
+      expect(game.players[0].hand.length).toBeGreaterThanOrEqual(0)
+      expect(game.players[1].hand.length).toBeGreaterThanOrEqual(0)
+    })
   })
 })

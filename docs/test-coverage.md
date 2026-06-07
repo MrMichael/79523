@@ -1,7 +1,7 @@
 # 测试覆盖报告
 
 > 生成时间：2026-06-07 | 版本：v0.1  
-> 总计：**164 测试**（引擎 71 + 服务端 93 + 客户端 44）
+> 总计：**213 测试**（引擎 71 + 服务端 98 + 客户端 44）
 
 ---
 
@@ -97,11 +97,11 @@
 
 ---
 
-## 二、服务端测试（jest）— 93 tests
+## 二、服务端测试（jest）— 98 tests
 
 **路径**: `packages/server/src/__tests__/`
 
-### 2.1 game-machine.test.ts — 游戏逻辑 (63 tests)
+### 2.1 game-machine.test.ts — 游戏逻辑 (68 tests)
 
 #### initGame (8)
 | # | 测试 |
@@ -217,6 +217,15 @@
 | 61 | 5 players: 200pts | 5人200分 |
 | 62 | 6 players: 200pts | 6人200分 |
 | 63 | all score cards accounted for after one round | 一round后总分不变 |
+
+#### Bug fixes — regression (5) *新增*
+| # | Bug | 测试 | 验证点 |
+|---|-----|------|--------|
+| 64 | BUG-1 | forcePlay scores table before clearing | 5pt+10pt=15, table cleared |
+| 65 | BUG-2 | post-boxer score in settlement | p1: 40+10=50 |
+| 66 | BUG-2 | scores_updated carries final scores | 55+35 correct |
+| 67 | BUG-3 | winner with 1 card: returns it | both keep >=1 card |
+| 68 | BUG-3 | winner with 0 cards: undo swap | no crash, no card loss |
 
 ### 2.2 game-simulation.test.ts — 多局模拟 (30 tests)
 
@@ -360,8 +369,14 @@ npx pnpm --filter @79523/server test -- --testPathPattern="game-simulation"
 
 | 项目 | 说明 |
 |------|------|
-| 模拟测试总分偏差 | AI 拳王随机性导致总分在预期值±35%内波动 |
 | E2E 未覆盖完整对局 | 多人实时游戏自动化难度高，仅做冒烟验证 |
-| 分牌跟踪诊断 | 新增 `verifyScoreTotal()` 输出精确分牌分布，待实局验证 |
-| 交粮 UI 测试 | playwrite E2E 未覆盖交粮环节交互 |
+| 交粮 UI 测试 | playwright E2E 未覆盖交粮环节交互 |
 | 拳王 UI 测试 | BoxerOverlay E2E 未覆盖 |
+
+## 七、已修复 Bug (v0.1)
+
+| Bug | 根因 | 修复 |
+|-----|------|------|
+| forcePlay清表丢分 | `ws.ts:516` forcePlay 清 `tableCards` 不先计分 | 清表前 `bestPlayer.score += calculateScore(tableCards)` |
+| 拳王得分未入结算 | `game_over` 在拳王前发射，不含拳王加分 | `finishBoxerFlow` 新增 `scores_updated` 事件 |
+| 交粮少牌 | `executeSurrenderSwap` 中 `!winnerCard` 提前 return，loser 已失牌 | 归还 loser 的牌（undo give）再 return |

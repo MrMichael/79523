@@ -283,6 +283,9 @@ export function executeSurrenderSwap(game: ServerGame): {
     winner.hand.push(loserCard)
     const winnerCard = getSmallestCard(winner.hand.filter(c => c.rank !== loserCard.rank || c.suit !== loserCard.suit))
     if (!winnerCard) {
+      // Winner has no card to give back — undo the give (return loser's card)
+      winner.hand = winner.hand.filter(c => c.suit !== loserCard.suit || c.rank !== loserCard.rank)
+      loser.hand.push(loserCard)
       return { swaps: [], nextLeadPlayerId: loser.id }
     }
     winner.hand = removeCardFromHand(winner.hand, winnerCard)

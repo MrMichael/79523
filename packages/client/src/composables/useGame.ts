@@ -138,6 +138,7 @@ export function useGame() {
 
     socket.value?.on('boxer_start', ({ scoreCard, participants, gameScores, boxerWins }: any) => {
       clog('boxer_start', { participants: participants?.length })
+      store.boxerPhase = 'awaiting'
       store.boxerScoreCard = scoreCard
       store.boxerParticipants = participants
       store.boxerMoves = {}
@@ -174,6 +175,13 @@ export function useGame() {
 
     socket.value?.on('surrender_swap', ({ losers }: any) => {
       clog('surrender_swap', losers?.map((l:any) => l.id))
+    })
+
+    socket.value?.on('scores_updated', ({ scores }: any) => {
+      const updated: Record<string, number> = {}
+      for (const s of scores) updated[s.id] = s.totalScore ?? s.score ?? 0
+      store.scores = updated
+      store.finalRankings = scores
     })
 
     socket.value?.on('next_game_lead', () => {

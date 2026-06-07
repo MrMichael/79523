@@ -99,8 +99,12 @@ function finishBoxerFlow(io: ReturnType<typeof Server>, roomCode: string, game: 
   if (!room) return
   game.boxerState = null
 
+  // Emit final scores (post-boxer) so GameOverOverlay updates
+  io.to(roomCode).emit('scores_updated', {
+    scores: sorted.map(p => ({ id: p.id, totalScore: p.score })),
+  })
+
   // Save surrender info for after next game's cards are dealt
-  const sorted = [...game.players].sort((a, b) => b.score - a.score)
   const pc = game.players.length
   room.pendingSurrender = {
     winnerIds: pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id),
@@ -512,8 +516,11 @@ function processPassResult(io: ReturnType<typeof Server>, roomCode: string, game
   if (result.forcePlay) {
     const bestIdx = game.players.findIndex(p => p.id === game.bestPlayerId)
     if (bestIdx >= 0) {
+      // Score current table cards before clearing (prevents score card loss)
+      const bestPlayer = game.players[bestIdx]
+      bestPlayer.score += calculateScore(game.tableCards)
       game.currentPlayerIndex = bestIdx
-      game.tableCards = [] // forcePlay clears currentBestPlay → table is empty
+      game.tableCards = []
       const gp = game.players[bestIdx]
       startTurnTimer(io, roomCode, game, room, gp.id)
       io.to(room.players[bestIdx].socketId).emit('your_turn', { timeout: 30, hand: gp.hand, deckCount: game.deck.length, tableCards: game.tableCards })
