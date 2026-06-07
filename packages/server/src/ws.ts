@@ -99,6 +99,8 @@ function finishBoxerFlow(io: ReturnType<typeof Server>, roomCode: string, game: 
   if (!room) return
   game.boxerState = null
 
+  const sorted = [...game.players].sort((a, b) => b.score - a.score)
+
   // Emit final scores (post-boxer) so GameOverOverlay updates
   io.to(roomCode).emit('scores_updated', {
     scores: sorted.map(p => ({ id: p.id, totalScore: p.score })),
