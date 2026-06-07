@@ -16,6 +16,7 @@
     <RoundBanner :playerNames="playerNames" :scores="scores" />
     <GameOverOverlay :playerNames="playerNames" />
     <BoxerOverlay :playerNames="playerNames" @boxer-move="onBoxerMove" />
+    <ScorePopup :scores="scores" :playerNames="playerNames" :players="props.players" />
     <SurrenderOverlay />
     <PlayBanner />
   </div>
@@ -35,6 +36,7 @@ import GameOverOverlay from './GameOverOverlay.vue'
 import BoxerOverlay from './BoxerOverlay.vue'
 import SurrenderOverlay from './SurrenderOverlay.vue'
 import PlayBanner from './PlayBanner.vue'
+import ScorePopup from './ScorePopup.vue'
 
 const store = useGameStore()
 const props = defineProps<{
