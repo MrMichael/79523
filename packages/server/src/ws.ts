@@ -3,7 +3,7 @@ import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
-import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap } from './game-machine'
+import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
@@ -142,7 +142,7 @@ function emitGameStart(io: ReturnType<typeof Server>, roomCode: string, game: No
 
 // ── Surrender flow (manual) ──
 
-const SURRENDER_TIMEOUT = 3000 // 3s auto-complete if no player responds
+const SURRENDER_TIMEOUT = 15000 // 15s auto-complete if no player responds
 
 // ── Logging ──
 const log = (evt: string, roomCode: string, detail?: any) => {
@@ -197,9 +197,39 @@ function startSurrenderFlow(io: ReturnType<typeof Server>, roomCode: string, gam
   sendSurrenderPrompt(io, roomCode, game, room)
 }
 
+function resetSurrenderTimer(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>, room: Room) {
+  if ((room as any).__surrenderTimer) {
+    clearTimeout((room as any).__surrenderTimer)
+    ;(room as any).__surrenderTimer = null
+  }
+  const timer = setTimeout(() => {
+    ;(room as any).__surrenderTimer = null
+    if (game.gameOver || game.boxerState) return
+    const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+    if (nextLeadPlayerId) {
+      const leadIdx = game.players.findIndex(p => p.id === nextLeadPlayerId)
+      if (leadIdx >= 0) game.currentPlayerIndex = leadIdx
+    }
+    if (swaps.length > 0) {
+      io.to(roomCode).emit('surrender_swap', {
+        losers: swaps.map((s: any) => ({ id: s.loserId, gaveUpCard: s.gaveUpCard, receivedCard: s.receivedCard })),
+      })
+    }
+    const leadGp = game.players[game.currentPlayerIndex]
+    const leadPlayer = room.players.find(p => p.id === leadGp.id)
+    if (leadPlayer) {
+      room.surrenderState = null
+      startTurnTimer(io, roomCode, game, room, leadGp.id)
+      io.to(leadPlayer.socketId).emit('your_turn', { timeout: 30, hand: leadGp.hand, deckCount: game.deck.length })
+    }
+  }, SURRENDER_TIMEOUT)
+  ;(room as any).__surrenderTimer = timer
+}
+
 function sendSurrenderPrompt(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>, room: Room) {
   const ss = room.surrenderState!
   log('SURRENDER_PROMPT', roomCode, `phase=${ss.phase} pair=${ss.currentPairIndex}`)
+  resetSurrenderTimer(io, roomCode, game, room)
   const gp = (id: string) => game.players.find(p => p.id === id)!
 
   if (ss.phase === 'losers_give') {
@@ -508,6 +538,8 @@ function processPassResult(io: ReturnType<typeof Server>, roomCode: string, game
         if (winner) winner.wins++
       }
       const remainingScoreCards = getBoxerScoreCards(game)
+      const scoreCheck = verifyScoreTotal(game)
+      log('GAME_OVER_SCORE', roomCode, scoreCheck.details)
       io.to(roomCode).emit('game_over', { scores: settlement.scores, remainingScoreCards })
       clearTurnTimer(roomCode)
       startBoxerFlow(io, roomCode, game)
@@ -661,26 +693,7 @@ export function setupWebSocket(httpServer: HttpServer) {
               swaps: [],
             }
             sendSurrenderPrompt(io, currentRoomCode, game, room)
-
-            // Surrender timeout — auto-complete, then start first turn
-            const timer = setTimeout(() => {
-              const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
-              if (nextLeadPlayerId) {
-                const leadIdx = game.players.findIndex(p => p.id === nextLeadPlayerId)
-                if (leadIdx >= 0) game.currentPlayerIndex = leadIdx
-              }
-              if (swaps.length > 0) {
-                io.to(currentRoomCode).emit('surrender_swap', {
-                  losers: swaps.map((s: any) => ({ id: s.loserId, gaveUpCard: s.gaveUpCard, receivedCard: s.receivedCard })),
-                })
-              }
-              const leadGp = game.players[game.currentPlayerIndex]
-              const leadSocket = room.players[game.currentPlayerIndex]
-              startTurnTimer(io, currentRoomCode, game, room, leadGp.id)
-              io.to(leadSocket.socketId).emit('your_turn', { timeout: 30, hand: leadGp.hand, deckCount: game.deck.length })
-              room.surrenderState = null
-            }, SURRENDER_TIMEOUT)
-            ;(room as any).__surrenderTimer = timer
+            // Timer managed by resetSurrenderTimer in sendSurrenderPrompt
           }, 800)
         } else {
           // Normal start — no pending surrender (first game)
@@ -773,6 +786,8 @@ export function setupWebSocket(httpServer: HttpServer) {
             if (winner) winner.wins++
           }
           const remainingScoreCards = getBoxerScoreCards(game)
+          const scoreCheck2 = verifyScoreTotal(game)
+          log('GAME_OVER_SCORE', currentRoomCode, scoreCheck2.details)
           io.to(currentRoomCode).emit('game_over', { scores: settlement.scores, remainingScoreCards })
           clearTurnTimer(currentRoomCode)
           startBoxerFlow(io, currentRoomCode, game)

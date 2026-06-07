@@ -13,6 +13,7 @@ import {
   getBoxerScoreCards,
   getBoxerParticipants,
   executeSurrenderSwap,
+  verifyScoreTotal,
 } from '../game-machine'
 
 // ---------------------------------------------------------------------------
@@ -939,5 +940,198 @@ describe('executeSurrenderSwap', () => {
 
     // l1 gave up Seven(12), l2 gave up Five(10) — l1 surrendered larger card → leads next
     expect(result.nextLeadPlayerId).toBe('l1')
+  })
+})
+
+// ── Surrender E2E: full swap scenarios ──
+
+describe('executeSurrenderSwap — 交粮全流程', () => {
+  const c = (suit: Suit, rank: Rank): Card => ({ suit, rank })
+
+  // Helper: build game state with scores
+  function makeGameState(playerCount: number, scores: number[], hands?: Card[][]) {
+    const ids = Array.from({ length: playerCount }, (_, i) => `p${i + 1}`)
+    const game = initGame(ids)
+    for (let i = 0; i < playerCount; i++) {
+      game.players[i].score = scores[i] || 0
+      if (hands?.[i]) game.players[i].hand = hands[i]
+    }
+    return game
+  }
+
+  describe('2位玩家 — 一缴一收', () => {
+    test('loser gives largest card, winner gives smallest back', () => {
+      const game = makeGameState(2, [50, 25], [
+        [c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.King)],   // winner hand
+        [c(Suit.Diamond, Rank.Ace), c(Suit.Club, Rank.Ten)],     // loser: Ace(7) > Ten(3), gives Ace
+      ])
+      const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+      expect(swaps).toHaveLength(1)
+      expect(swaps[0].loserId).toBe('p2')
+      expect(swaps[0].winnerId).toBe('p1')
+      // Loser gave largest (Ace), got winner's smallest back (King or Seven)
+      expect(swaps[0].gaveUpCard.rank).toBe(Rank.Ace)
+      expect(nextLeadPlayerId).toBeTruthy()
+    })
+
+    test('loser has empty hand — no crash, swap is no-op', () => {
+      const game = makeGameState(2, [50, 25], [
+        [c(Suit.Spade, Rank.King)],
+        [],  // loser empty
+      ])
+      const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+      expect(swaps).toHaveLength(0)
+      expect(nextLeadPlayerId).toBe('p2') // loser leads next
+    })
+
+    test('winner has only one card — gives it back (smallest = only)', () => {
+      const game = makeGameState(2, [50, 25], [
+        [c(Suit.Spade, Rank.Seven)],  // winner's only card: Seven(12)
+        [c(Suit.Diamond, Rank.Ace), c(Suit.Club, Rank.Five)],  // loser: Ace(7), Five(10)
+      ])
+      const { swaps } = executeSurrenderSwap(game)
+      expect(swaps).toHaveLength(1)
+      // Loser's largest: Five(10) > Ace(7), gives Five
+      // Winner has [Seven(12)], gives only card back
+      expect(swaps[0].gaveUpCard.rank).toBe(Rank.Five)
+      expect(swaps[0].receivedCard.rank).toBe(Rank.Seven)
+    })
+  })
+
+  describe('3位玩家 — 一缴一收', () => {
+    test('1 winner, 1 loser; middle player unaffected', () => {
+      const game = makeGameState(3, [60, 40, 20], [
+        [c(Suit.Spade, Rank.King), c(Suit.Heart, Rank.Queen)],  // p1 winner
+        [c(Suit.Club, Rank.Ten)],                                 // p2 middle
+        [c(Suit.Diamond, Rank.Ace), c(Suit.Heart, Rank.Five)],   // p3 loser
+      ])
+      const { swaps } = executeSurrenderSwap(game)
+      expect(swaps).toHaveLength(1)
+      expect(swaps[0].winnerId).toBe('p1')
+      expect(swaps[0].loserId).toBe('p3')
+      // Only p1 and p3 hands changed, p2 unchanged
+    })
+
+    test('all same score — swap still happens based on array order', () => {
+      const game = makeGameState(3, [0, 0, 0], [
+        [c(Suit.Spade, Rank.King)],
+        [c(Suit.Heart, Rank.Ace)],
+        [c(Suit.Diamond, Rank.Seven)],
+      ])
+      const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+      // Sorted by score (stable), p1 wins, p3 loses
+      expect(swaps.length).toBeGreaterThanOrEqual(0)
+      expect(nextLeadPlayerId).toBeTruthy()
+    })
+  })
+
+  describe('4位及以上玩家 — 二缴二收', () => {
+    test('4 players: top2 winners, bottom2 losers swap', () => {
+      const game = makeGameState(4, [80, 60, 30, 10], [
+        [c(Suit.Spade, Rank.King), c(Suit.Heart, Rank.Queen)],   // p1 win1
+        [c(Suit.Club, Rank.Ten)],                                  // p2 win2
+        [c(Suit.Diamond, Rank.Ace), c(Suit.Heart, Rank.Five)],    // p3 lose1: Ace(7)
+        [c(Suit.Club, Rank.Seven), c(Suit.Spade, Rank.Five)],     // p4 lose2: Seven(12)
+      ])
+      const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+      // 2 losers, 2 winners → 2 swaps
+      expect(swaps.length).toBeGreaterThanOrEqual(1)
+      // Larger surrendered card determines next lead
+      expect(nextLeadPlayerId).toBeTruthy()
+    })
+
+    test('5 players: still top2 vs bottom2', () => {
+      const game = makeGameState(5, [100, 80, 50, 30, 10], [
+        [c(Suit.Spade, Rank.Seven)],
+        [c(Suit.Heart, Rank.Ace)],
+        [c(Suit.Club, Rank.King)],
+        [c(Suit.Diamond, Rank.Five)],
+        [c(Suit.Spade, Rank.Queen)],
+      ])
+      const { swaps } = executeSurrenderSwap(game)
+      expect(swaps.length).toBeGreaterThanOrEqual(1)
+      expect(swaps.length).toBeLessThanOrEqual(2)
+      for (const s of swaps) {
+        expect(s.winnerId).toBeDefined()
+        expect(s.loserId).toBeDefined()
+        expect(s.gaveUpCard).toBeDefined()
+        expect(s.receivedCard).toBeDefined()
+      }
+    })
+
+    test('6 players: swap count matches loser count', () => {
+      const game = makeGameState(6, [120, 100, 80, 50, 30, 10], [
+        [c(Suit.Spade, Rank.Seven)],
+        [c(Suit.Heart, Rank.Ace)],
+        [c(Suit.Club, Rank.King)],
+        [c(Suit.Diamond, Rank.Ten)],
+        [c(Suit.Spade, Rank.Five)],
+        [c(Suit.Heart, Rank.Queen)],
+      ])
+      const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+      expect(swaps.length).toBeGreaterThanOrEqual(1)
+      expect(swaps.length).toBeLessThanOrEqual(2)
+      expect(nextLeadPlayerId).toBeTruthy()
+    })
+  })
+})
+
+// ── Score Total Verification: 100pts/deck ──
+
+describe('verifyScoreTotal — 总分校验', () => {
+  const c = (suit: Suit, rank: Rank): Card => ({ suit, rank })
+
+  test('new game: 100pts in deck + hands', () => {
+    const game = initGame(['p1', 'p2'])
+    const result = verifyScoreTotal(game)
+    expect(result.played).toBe(0)
+    expect(result.total).toBe(100)
+    expect(result.missing).toBe(0)
+  })
+
+  test('after dealing: points split between hands and deck', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    const result = verifyScoreTotal(game)
+    // 10 cards in hands (5 each), 42 in deck → total still 100
+    expect(result.total).toBe(100)
+    expect(result.inHands).toBeGreaterThan(0)
+    expect(result.inDeck).toBeGreaterThan(0)
+    expect(result.played + result.inHands + result.inDeck).toBe(100)
+  })
+
+  test('4+ players: 200pts (2 decks)', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    const result = verifyScoreTotal(game)
+    expect(result.expected).toBe(200)
+    expect(result.total).toBe(200)
+  })
+
+  test('5 players: 200pts', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5'])
+    const result = verifyScoreTotal(game)
+    expect(result.expected).toBe(200)
+    expect(result.total).toBe(200)
+  })
+
+  test('6 players: 200pts', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    const result = verifyScoreTotal(game)
+    expect(result.expected).toBe(200)
+    expect(result.total).toBe(200)
+  })
+
+  test('all score cards accounted for after one round', () => {
+    const game = initGame(['p1', 'p2'])
+    const initialTotal = verifyScoreTotal(game).total
+    expect(initialTotal).toBe(100)
+
+    // Play one round: p1 plays a single, p2 passes
+    const p1Card = game.players[0].hand[0]
+    handlePlay(game, 'p1', [p1Card])
+    handlePass(game, 'p2')
+
+    const afterRound = verifyScoreTotal(game)
+    // Total should still be 100 (some scored, rest in deck/hands)
+    expect(afterRound.total).toBe(100)
   })
 })

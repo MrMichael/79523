@@ -1,4 +1,4 @@
-import { createDeck, shuffle, draw, identify, beats, calculateScore, compareCards, getSmallestCard, GamePhase, isScoreCard } from '@79523/engine'
+import { createDeck, shuffle, draw, identify, beats, calculateScore, compareCards, getSmallestCard, GamePhase, isScoreCard, Rank } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import type { ServerGame, GamePlayer } from './types'
 
@@ -225,6 +225,36 @@ export function getBoxerScoreCards(game: ServerGame): Card[] {
     }
   }
   return cards
+}
+
+/** Verify total score at game end: played + boxer should = 100/200 */
+export function verifyScoreTotal(game: ServerGame): {
+  expected: number
+  played: number
+  inHands: number
+  inDeck: number
+  total: number
+  missing: number
+  details: string
+} {
+  const expected = game.players.length < 4 ? 100 : 200
+  const played = game.players.reduce((sum, p) => sum + p.score, 0)
+  const inHands = game.players.reduce((sum, p) => sum + calculateScore(p.hand), 0)
+  const inDeck = calculateScore(game.deck)
+  const total = played + inHands + inDeck
+  const missing = expected - total
+
+  // Count per rank
+  const allCards = [...game.deck]
+  for (const p of game.players) allCards.push(...p.hand)
+  const fiveCount = allCards.filter(c => isScoreCard(c) && c.rank === Rank.Five).length
+  const tenCount = allCards.filter(c => isScoreCard(c) && c.rank === Rank.Ten).length
+  const kingCount = allCards.filter(c => isScoreCard(c) && c.rank === Rank.King).length
+
+  return {
+    expected, played, inHands, inDeck, total, missing,
+    details: `5s:${fiveCount}/4 10s:${tenCount}/4 Ks:${kingCount}/4 score=${played}+${inHands}+${inDeck}=${total}/${expected} (missing ${missing})`,
+  }
 }
 
 /** All non-finished players who should participate in boxer rounds */
