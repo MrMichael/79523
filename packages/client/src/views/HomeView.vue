@@ -2,8 +2,8 @@
   <div class="home">
     <div class="hero">
       <div class="logo-mark">🃏</div>
-      <h1>79523</h1>
-      <p class="subtitle">四人以上在线扑克 · 争上游</p>
+      <h1>烟三文四</h1>
+      <p class="subtitle">在线扑克 · 争上游</p>
     </div>
     <div class="forms">
       <CreateRoom />

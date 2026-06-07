@@ -4,7 +4,7 @@
       <button class="back-btn" @click="goHome">← 首页</button>
       <span v-if="roomCode" class="bar-code">{{ roomCode }}</span>
       <span class="bar-spacer" v-else></span>
-      <span class="bar-title">79523</span>
+      <span class="bar-title">烟三文四</span>
     </header>
     <main class="app-main">
       <router-view />
