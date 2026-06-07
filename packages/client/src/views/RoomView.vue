@@ -23,11 +23,14 @@
     </div>
 
     <!-- Leaderboard -->
-    <div v-if="hasStats" class="leaderboard">
+    <div v-if="hasStats || lastGameScores.length" class="leaderboard">
       <h3 class="lb-title">📊 积分榜</h3>
       <div v-for="p in sortedPlayers" :key="p.id" class="lb-item">
         <span class="lb-name">{{ p.name }}</span>
-        <span class="lb-stats">🏆 {{ p.wins ?? 0 }} 胜 &nbsp; 🥊 {{ p.boxerWins ?? 0 }} 拳王</span>
+        <span class="lb-stats">
+          <span v-if="lastGameScores[p.id] !== undefined" class="lb-score">{{ lastGameScores[p.id] }}分</span>
+          🏆 {{ p.wins ?? 0 }} 胜 &nbsp; 🥊 {{ p.boxerWins ?? 0 }} 拳王
+        </span>
       </div>
     </div>
 
@@ -47,9 +50,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useRoom } from '@/composables/useRoom'
+import { useGameStore } from '@/stores/game'
 
 const { connect } = useSocket()
 const { roomCode, players, amReady, myId, ready, startNewGame, setupListeners } = useRoom()
+const gameStore = useGameStore()
 const copied = ref(false)
 
 onMounted(() => {
@@ -62,6 +67,13 @@ const hasStats = computed(() => players.value.some(p => (p.wins ?? 0) > 0 || (p.
 const sortedPlayers = computed(() =>
   [...players.value].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.boxerWins ?? 0) - (a.boxerWins ?? 0))
 )
+const lastGameScores = computed(() => {
+  const scores: Record<string, number> = {}
+  for (const r of gameStore.finalRankings) {
+    scores[r.id] = r.totalScore
+  }
+  return scores
+})
 
 function handleReady() { ready() }
 function handleNewGame() { startNewGame() }
@@ -127,4 +139,5 @@ function copyCode() {
 .lb-title { font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem; }
 .lb-item { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.8rem; color: #cbd5e1; }
 .lb-stats { color: #94a3b8; }
+.lb-score { color: #fbbf24; font-weight: 600; margin-right: 0.5rem; }
 </style>

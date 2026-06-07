@@ -66,7 +66,10 @@ function processBoxerRound(io: ReturnType<typeof Server>, roomCode: string, game
     const roomPlayer = room?.players.find(p => p.id === winnerId)
     if (roomPlayer) roomPlayer.boxerWins++
 
-    io.to(roomCode).emit('boxer_winner', { playerId: winnerId, scoreCard: card })
+    io.to(roomCode).emit('boxer_winner', {
+      playerId: winnerId, scoreCard: card,
+      scores: game.players.map(p => ({ id: p.id, score: p.score })),
+    })
 
     bs.currentCardIndex++
     if (bs.currentCardIndex < bs.scoreCards.length) {

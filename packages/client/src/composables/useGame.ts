@@ -158,10 +158,14 @@ export function useGame() {
       if (playerId === store.myId) store.boxerPhase = 'eliminated'
     })
 
-    socket.value?.on('boxer_winner', ({ playerId, scoreCard }: any) => {
+    socket.value?.on('boxer_winner', ({ playerId, scoreCard, scores }: any) => {
       store.boxerWinnerId = playerId
       store.boxerScoreCard = scoreCard
-      // Boxer phase stays 'reveal' or transitions — next boxer_start will reset
+      if (scores) {
+        const updated: Record<string, number> = {}
+        for (const s of scores) updated[s.id] = s.score
+        store.boxerGameScores = updated
+      }
     })
 
     socket.value?.on('surrender_start', (data: any) => {
