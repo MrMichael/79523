@@ -3,7 +3,7 @@ import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
-import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal } from './game-machine'
+import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
@@ -321,9 +321,9 @@ function processSurrenderGive(io: ReturnType<typeof Server>, roomCode: string, p
   if (ss.loserIds[ss.currentPairIndex] !== playerId) return
 
   log('SURRENDER_GIVE', roomCode, `loser=${playerId}`)
-  // Remove card from loser's hand
+  // Remove ONE card from loser's hand (use removeCardFromHand to handle duplicates)
   const loserGp = game.players.find(p => p.id === playerId)!
-  loserGp.hand = loserGp.hand.filter(c => c.suit !== card.suit || c.rank !== card.rank)
+  loserGp.hand = removeCardFromHand(loserGp.hand, card)
   ss.surrenderedCards.push({ playerId, card })
 
   // Notify all players of the surrender
@@ -379,9 +379,9 @@ function processSurrenderReturn(io: ReturnType<typeof Server>, roomCode: string,
   if (ss.winnerIds[ss.currentPairIndex] !== playerId) return
   if (!ss.pendingPick) return
 
-  // Remove returned card from winner's hand, give to loser
+  // Remove ONE returned card from winner's hand (use removeCardFromHand for duplicates)
   const winnerGp = game.players.find(p => p.id === playerId)!
-  winnerGp.hand = winnerGp.hand.filter(c => c.suit !== card.suit || c.rank !== card.rank)
+  winnerGp.hand = removeCardFromHand(winnerGp.hand, card)
 
   const loserId = ss.loserIds[ss.currentPairIndex]
   const loserGp = game.players.find(p => p.id === loserId)!

@@ -1226,6 +1226,52 @@ describe('Bug fixes — regression', () => {
       expect(game.players[1].hand.length).toBeGreaterThanOrEqual(0)
     })
   })
+
+  describe('BUG-4: surrender filter removes all duplicates (2-deck)', () => {
+    test('executeSurrenderSwap preserves card count with duplicates', () => {
+      const game = initGame(['p1', 'p2', 'p3', 'p4']) // 2 decks
+      game.players[0].score = 80 // top winner
+      game.players[1].score = 60 // winner 2
+      game.players[2].score = 30 // loser 1
+      game.players[3].score = 10 // loser 2
+
+      const totalBefore = game.players.reduce((s, p) => s + p.hand.length, 0)
+      executeSurrenderSwap(game)
+      const totalAfter = game.players.reduce((s, p) => s + p.hand.length, 0)
+
+      // Card count should be preserved (no loss)
+      expect(totalAfter).toBe(totalBefore)
+    })
+
+    test('removeCardFromHand removes only one card with duplicates', () => {
+      const hand = [
+        { suit: 0, rank: 5 }, // Spade Queen
+        { suit: 1, rank: 5 }, // Heart Queen (same rank, different suit)
+        { suit: 2, rank: 6 }, // Club King
+      ]
+      const result = removeCardFromHand(hand, { suit: 0, rank: 5 })
+      expect(result).toHaveLength(2)
+      // Only Spade Queen removed, Heart Queen still there
+      expect(result.some(c => c.suit === 1 && c.rank === 5)).toBe(true)
+    })
+
+    test('filter removes BOTH exact duplicates — removeCardFromHand removes one', () => {
+      // 2-deck game: two identical cards (same suit+rank)
+      const hand = [
+        { suit: 0, rank: 5 },
+        { suit: 0, rank: 5 }, // exact duplicate (2 decks)
+        { suit: 2, rank: 6 },
+      ]
+      // filter removes ALL matching: loses 2 cards
+      const filtered = hand.filter(c => c.suit !== 0 || c.rank !== 5)
+      expect(filtered).toHaveLength(1) // only Club King remains
+
+      // removeCardFromHand removes only ONE: preserves duplicate
+      const removed = removeCardFromHand(hand, { suit: 0, rank: 5 })
+      expect(removed).toHaveLength(2) // one Spade Queen gone, one stays
+      expect(removed.filter(c => c.suit === 0 && c.rank === 5)).toHaveLength(1)
+    })
+  })
 })
 
 // ── Timing flow: boxer → settlement → leaderboard ──
