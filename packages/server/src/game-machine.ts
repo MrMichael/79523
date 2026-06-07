@@ -144,7 +144,8 @@ export function handlePass(game: ServerGame, playerId: string): { success: boole
   }
 
   game.passCount++
-  const activePlayers = game.players.filter(p => !p.finished).length
+  // Count bestPlayer even if they just finished (last card) so trailing players get their turn
+  const activePlayers = game.players.filter(p => !p.finished || p.id === game.bestPlayerId).length
 
   if (game.passCount >= activePlayers - 1 && game.bestPlayerId) {
     // In last round with no one finished, force bestPlayer to play again (Design §4.8 Case 2/3)
