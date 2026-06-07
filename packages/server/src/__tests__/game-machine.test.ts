@@ -1500,3 +1500,110 @@ describe('getScoreTieGroups — 排位决胜分组', () => {
     expect(groups[0].playerIds).toContain('p2')
   })
 })
+
+// ── Comprehensive end-of-game scenarios ──
+
+describe('End-of-game: 无剩余分牌 → getScoreTieGroups', () => {
+  test('a1. 2p unique (60,40)', () => {
+    const g = initGame(['p1', 'p2']); g.players[0].score=60; g.players[1].score=40
+    expect(getScoreTieGroups(g)).toHaveLength(0)
+  })
+  test('a2. 3p unique (80,50,20)', () => {
+    const g = initGame(['p1', 'p2', 'p3']); g.players[0].score=80; g.players[1].score=50; g.players[2].score=20
+    expect(getScoreTieGroups(g)).toHaveLength(0)
+  })
+  test('a3. 4p unique (100,75,50,25)', () => {
+    const g = initGame(['p1', 'p2', 'p3', 'p4']); g.players[0].score=100; g.players[1].score=75; g.players[2].score=50; g.players[3].score=25
+    expect(getScoreTieGroups(g)).toHaveLength(0)
+  })
+  test('a4. 5p unique', () => { const g=initGame(['p1','p2','p3','p4','p5']); for(let i=0;i<5;i++) g.players[i].score=100-i*20; expect(getScoreTieGroups(g)).toHaveLength(0) })
+  test('a5. 6p unique', () => { const g=initGame(['p1','p2','p3','p4','p5','p6']); for(let i=0;i<6;i++) g.players[i].score=120-i*20; expect(getScoreTieGroups(g)).toHaveLength(0) })
+
+  test('b1. 2p tied (50,50)', () => {
+    const g=initGame(['p1','p2']); g.players[0].score=50; g.players[1].score=50
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].playerIds).toHaveLength(2)
+  })
+  test('b2. 3p: P1+P2=60, P3=40', () => {
+    const g=initGame(['p1','p2','p3']); g.players[0].score=60; g.players[1].score=60; g.players[2].score=40
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].score).toBe(60)
+  })
+  test('b3. 4p: mid2 tied at 50', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players[0].score=80; g.players[1].score=50; g.players[2].score=50; g.players[3].score=20
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].playerIds).toHaveLength(2)
+  })
+  test('b4. 6p: bottom2 tied at 20', () => {
+    const g=initGame(['p1','p2','p3','p4','p5','p6']); g.players[0].score=100; g.players[1].score=80; g.players[2].score=60; g.players[3].score=40; g.players[4].score=20; g.players[5].score=20
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].score).toBe(20)
+  })
+
+  test('c1. 3p all 50', () => {
+    const g=initGame(['p1','p2','p3']); g.players.forEach(p=>p.score=50)
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].playerIds).toHaveLength(3)
+  })
+  test('c2. 4p: top3 tied at 60', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players[0].score=60; g.players[1].score=60; g.players[2].score=60; g.players[3].score=30
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].playerIds).toHaveLength(3)
+  })
+
+  test('d1. 4p all 50', () => { const g=initGame(['p1','p2','p3','p4']); g.players.forEach(p=>p.score=50); expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(4) })
+  test('d2. 5p all 50', () => { const g=initGame(['p1','p2','p3','p4','p5']); g.players.forEach(p=>p.score=50); expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(5) })
+  test('d3. 6p all 50', () => { const g=initGame(['p1','p2','p3','p4','p5','p6']); g.players.forEach(p=>p.score=50); expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(6) })
+
+  test('e1. 4p: 80/80 vs 40/40 → 2 groups', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players[0].score=80; g.players[1].score=80; g.players[2].score=40; g.players[3].score=40
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(2); expect(r[0].score).toBe(80); expect(r[1].score).toBe(40)
+  })
+  test('e2. 5p: 100/100 + 50/50 + 0 → 2 groups', () => {
+    const g=initGame(['p1','p2','p3','p4','p5']); g.players[0].score=100; g.players[1].score=100; g.players[2].score=50; g.players[3].score=50; g.players[4].score=0
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(2)
+  })
+  test('e3. 6p: 90/90 + 60/60 + 30/30 → 3 groups', () => {
+    const g=initGame(['p1','p2','p3','p4','p5','p6']); g.players[0].score=90; g.players[1].score=90; g.players[2].score=60; g.players[3].score=60; g.players[4].score=30; g.players[5].score=30
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(3)
+  })
+})
+
+describe('End-of-game: 拳王后分牌猜完 → getScoreTieGroups', () => {
+  test('a. 4p unique post-boxer', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players[0].score=85; g.players[1].score=65; g.players[2].score=35; g.players[3].score=15
+    expect(getScoreTieGroups(g)).toHaveLength(0)
+  })
+  test('a. 6p unique post-boxer', () => {
+    const g=initGame(['p1','p2','p3','p4','p5','p6']); for(let i=0;i<6;i++) g.players[i].score=110-i*20
+    expect(getScoreTieGroups(g)).toHaveLength(0)
+  })
+
+  test('b. 3p post-boxer: P2+P3 tied at 35', () => {
+    const g=initGame(['p1','p2','p3']); g.players[0].score=70; g.players[1].score=35; g.players[2].score=35
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].playerIds).toContain('p2')
+  })
+  test('b. 4p post-boxer: top2 tied at 60', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players[0].score=60; g.players[1].score=60; g.players[2].score=40; g.players[3].score=30
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1)
+  })
+  test('b. 5p post-boxer: mid2 tied at 50', () => {
+    const g=initGame(['p1','p2','p3','p4','p5']); g.players[0].score=80; g.players[1].score=60; g.players[2].score=50; g.players[3].score=50; g.players[4].score=30
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(1); expect(r[0].playerIds).toHaveLength(2)
+  })
+
+  test('c. 3p all tied post-boxer', () => {
+    const g=initGame(['p1','p2','p3']); g.players.forEach(p=>p.score=40)
+    expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(3)
+  })
+  test('c. 4p all tied post-boxer', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players.forEach(p=>p.score=60)
+    expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(4)
+  })
+
+  test('d. 4p all 60 post-boxer', () => { const g=initGame(['p1','p2','p3','p4']); g.players.forEach(p=>p.score=60); expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(4) })
+  test('d. 6p all 50 post-boxer', () => { const g=initGame(['p1','p2','p3','p4','p5','p6']); g.players.forEach(p=>p.score=50); expect(getScoreTieGroups(g)[0].playerIds).toHaveLength(6) })
+
+  test('e. 4p: 70/70+30/30 post-boxer → 2 groups', () => {
+    const g=initGame(['p1','p2','p3','p4']); g.players[0].score=70; g.players[1].score=70; g.players[2].score=30; g.players[3].score=30
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(2); expect(r[0].score).toBe(70); expect(r[1].score).toBe(30)
+  })
+  test('e. 6p: three pairs post-boxer → 3 groups', () => {
+    const g=initGame(['p1','p2','p3','p4','p5','p6']); g.players[0].score=90; g.players[1].score=90; g.players[2].score=60; g.players[3].score=60; g.players[4].score=30; g.players[5].score=30
+    const r=getScoreTieGroups(g); expect(r).toHaveLength(3)
+  })
+})
