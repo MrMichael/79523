@@ -2,11 +2,16 @@
   <Transition name="banner">
     <div v-if="visible" class="play-banner" :class="typeClass">
       <span class="banner-player">{{ player }}</span>
-      <span v-if="currentType === 'root'" class="banner-icon-root">👑</span>
-      <span class="banner-label">{{ typeLabel }}</span>
-      <div class="banner-cards">
-        <span v-for="(c, i) in cards" :key="i" class="banner-card" :class="{ red: c.suit === 1 || c.suit === 3 }">{{ cardStr(c) }}</span>
-      </div>
+      <template v-if="currentType === 'pass'">
+        <span class="banner-label">过</span>
+      </template>
+      <template v-else>
+        <span v-if="currentType === 'root'" class="banner-icon-root">👑</span>
+        <span class="banner-label">{{ typeLabel }}</span>
+        <div class="banner-cards">
+          <span v-for="(c, i) in cards" :key="i" class="banner-card" :class="{ red: c.suit === 1 || c.suit === 3 }">{{ cardStr(c) }}</span>
+        </div>
+      </template>
     </div>
   </Transition>
 </template>
@@ -39,6 +44,19 @@ const typeClass = computed(() => {
 watch(() => store.tableCards, (newVal, oldVal) => {
   if (newVal.length > 0 && newVal !== oldVal) showBanner()
 })
+
+watch(() => store.lastPassPlayer, (player) => {
+  if (player) showPass(player)
+})
+
+function showPass(p: string) {
+  currentType.value = 'pass'
+  player.value = p
+  cards.value = []
+  visible.value = true
+  if (timer.value) clearTimeout(timer.value)
+  timer.value = setTimeout(() => { visible.value = false }, 1000)
+}
 
 function showBanner() {
   currentType.value = store.lastPlayType || 'single'
@@ -107,6 +125,16 @@ function showBanner() {
 }
 .type-root .banner-player { color: #fcd34d; }
 .type-root .banner-label { color: #fbbf24; text-shadow: 0 0 12px rgba(251,191,36,0.5); }
+
+.type-pass {
+  background: linear-gradient(135deg, rgba(100,116,139,0.2), rgba(71,85,105,0.15));
+  border: 2px solid rgba(100,116,139,0.3);
+  padding: 0.5rem 2rem;
+}
+.type-pass .banner-player { color: #94a3b8; }
+.type-pass .banner-label {
+  color: #94a3b8; font-size: 1.5rem; font-weight: 700;
+}
 
 @keyframes rootPulse {
   0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 20px rgba(251,191,36,0.2); }

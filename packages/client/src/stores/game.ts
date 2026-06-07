@@ -17,6 +17,7 @@ export const useGameStore = defineStore('game', () => {
   const lastPlayType = ref('')
   const lastPlayedCards = ref<Card[]>([])
   const lastPlayPlayer = ref('')
+  const lastPassPlayer = ref('')
   const roundWinnerId = ref('')
   const roundScoreCards = ref<Card[]>([])
   const finalRankings = ref<{ id: string; totalScore: number }[]>([])
@@ -68,7 +69,7 @@ export const useGameStore = defineStore('game', () => {
 
   return {
     myHand, tableCards, selectedCards, scores, isMyTurn, timeLeft, deckCount,
-    phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, roundWinnerId, roundScoreCards, finalRankings,
+    phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
     boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts,
     selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick,
   }

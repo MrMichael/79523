@@ -95,6 +95,7 @@ export function useGame() {
     socket.value?.on('pass_made', ({ playerId, nextPlayerId }: any) => {
       store.clearSelection()
       store.isMyTurn = false
+      store.lastPassPlayer = playerNames.value[playerId] || playerId?.slice(0, 4) || ''
       stopCountdown()
       if (nextPlayerId) store.currentPlayerId = nextPlayerId
     })
