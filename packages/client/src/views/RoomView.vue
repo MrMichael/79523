@@ -25,7 +25,8 @@
     <!-- Leaderboard -->
     <div v-if="hasStats || lastGameScores.length" class="leaderboard">
       <h3 class="lb-title">📊 积分榜</h3>
-      <div v-for="p in sortedPlayers" :key="p.id" class="lb-item">
+      <div v-for="(p, i) in sortedPlayers" :key="p.id" class="lb-item">
+        <span class="lb-rank">{{ rankLabel(i) }}</span>
         <span class="lb-name">{{ p.name }}</span>
         <span class="lb-stats">
           <span v-if="lastGameScores[p.id] !== undefined" class="lb-score">{{ lastGameScores[p.id] }}分</span>
@@ -67,6 +68,7 @@ const hasStats = computed(() => players.value.some(p => (p.wins ?? 0) > 0 || (p.
 const sortedPlayers = computed(() =>
   [...players.value].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.boxerWins ?? 0) - (a.boxerWins ?? 0))
 )
+function rankLabel(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}` }
 const lastGameScores = computed(() => {
   const scores: Record<string, number> = {}
   for (const r of gameStore.finalRankings) {
@@ -137,7 +139,8 @@ function copyCode() {
   border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;
 }
 .lb-title { font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem; }
-.lb-item { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.8rem; color: #cbd5e1; }
+.lb-item { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0; font-size: 0.8rem; color: #cbd5e1; }
+.lb-rank { width: 20px; font-size: 0.85rem; flex-shrink: 0; }
 .lb-stats { color: #94a3b8; }
 .lb-score { color: #fbbf24; font-weight: 600; margin-right: 0.5rem; }
 </style>

@@ -100,38 +100,70 @@ function processBoxerRound(io: ReturnType<typeof Server>, roomCode: string, game
 }
 
 function resolveBoxerChampion(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>) {
-  // Find players with the most boxer wins this game
+  // Step 1: Resolve boxer champion tie (most boxer wins)
   const maxWins = Math.max(...game.players.map(p => p.boxerWins))
   const champions = game.players.filter(p => p.boxerWins === maxWins)
 
-  if (champions.length === 1 || maxWins === 0) {
-    // Clear champion or no wins at all → done
+  if (champions.length > 1 && maxWins > 0) {
+    log('BOXER_TIEBREAK', roomCode, `tied=${champions.map(p => p.id).join(',')} wins=${maxWins}`)
+    io.to(roomCode).emit('boxer_tiebreak', {
+      participants: champions.map(p => p.id),
+      info: `${champions.map(p => {
+        const rp = getRoom(roomCode)?.players.find(r => r.id === p.id)
+        return rp?.name || p.id
+      }).join(' vs ')} 拳王决胜局！`,
+      wins: maxWins,
+    })
+    game.boxerState = {
+      scoreCards: [], currentCardIndex: 0,
+      currentSurvivors: champions.map(p => p.id),
+      currentMoves: new Map(), round: 0,
+    }
+    setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), 2000)
+    return
+  }
+
+  // Step 2: Resolve score-based ranking ties
+  resolveScoreRankings(io, roomCode, game)
+}
+
+/** Find tied score groups and run ranking tiebreakers to produce unique ordering */
+function resolveScoreRankings(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>, startGroupIdx = 0) {
+  // Group players by score
+  const byScore = new Map<number, string[]>()
+  for (const p of game.players) {
+    const ids = byScore.get(p.score) || []
+    ids.push(p.id)
+    byScore.set(p.score, ids)
+  }
+
+  // Find groups with ties (descending score order)
+  const tiedGroups = Array.from(byScore.entries())
+    .filter(([, ids]) => ids.length > 1)
+    .sort(([a], [b]) => b - a)
+
+  if (tiedGroups.length === 0 || startGroupIdx >= tiedGroups.length) {
     finishBoxerFlow(io, roomCode, game)
     return
   }
 
-  // Tie: start tiebreaker with tied players only
-  log('BOXER_TIEBREAK', roomCode, `tied=${champions.map(p => p.id).join(',')} wins=${maxWins}`)
+  const [score, ids] = tiedGroups[startGroupIdx]
+  const room = getRoom(roomCode)
+  const names = ids.map(id => room?.players.find(r => r.id === id)?.name || id).join(' vs ')
+  log('SCORE_TIEBREAK', roomCode, `score=${score} players=${ids.join(',')}`)
+
   io.to(roomCode).emit('boxer_tiebreak', {
-    participants: champions.map(p => p.id),
-    info: `${champions.map(p => {
-      const rp = getRoom(roomCode)?.players.find(r => r.id === p.id)
-      return rp?.name || p.id
-    }).join(' vs ')} 决胜局！`,
-    wins: maxWins,
+    participants: ids,
+    info: `${names} 排位决胜局！(${score}分并列)`,
   })
 
-  // Set up boxer state with tied players only
   game.boxerState = {
-    scoreCards: [], // no score card at stake
-    currentCardIndex: 0,
-    currentSurvivors: champions.map(p => p.id),
-    currentMoves: new Map(),
-    round: 0,
+    scoreCards: [], currentCardIndex: 0,
+    currentSurvivors: [...ids],
+    currentMoves: new Map(), round: 0,
+    tieGroupIndex: startGroupIdx,
   }
-  setTimeout(() => {
-    startBoxerTiebreakRound(io, roomCode, game)
-  }, 2000)
+  setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), 2000)
 }
 
 function startBoxerTiebreakRound(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>) {
@@ -194,7 +226,10 @@ function resolveBoxerTiebreakRound(io: ReturnType<typeof Server>, roomCode: stri
     })
 
     log('BOXER_CHAMPION', roomCode, championId)
-    setTimeout(() => finishBoxerFlow(io, roomCode, game), 2000)
+    setTimeout(() => {
+      const nextIdx = (bs as any).tieGroupIndex !== undefined ? (bs as any).tieGroupIndex + 1 : 0
+      resolveScoreRankings(io, roomCode, game, nextIdx)
+    }, 2000)
   } else {
     const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
     for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
