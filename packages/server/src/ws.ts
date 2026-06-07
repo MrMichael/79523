@@ -739,8 +739,8 @@ function startBoxerFlow(io: ReturnType<typeof Server>, roomCode: string, game: N
   const scoreCards = getBoxerScoreCards(game)
   log('BOXER_START', roomCode, `cards=${scoreCards.length}`)
   if (scoreCards.length === 0) {
-    log('BOXER_SKIP', roomCode, 'no score cards')
-    finishBoxerFlow(io, roomCode, game)
+    log('BOXER_SKIP', roomCode, 'no score cards → resolve rankings directly')
+    resolveBoxerChampion(io, roomCode, game)
     return
   }
 

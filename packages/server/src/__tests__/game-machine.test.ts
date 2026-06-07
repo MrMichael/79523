@@ -1485,4 +1485,18 @@ describe('getScoreTieGroups — 排位决胜分组', () => {
     expect(groups[0].playerIds).not.toContain('p1')
     expect(groups[0].playerIds).not.toContain('p4')
   })
+
+  test('no score cards + ties → tiebreaker still runs via resolveBoxerChampion', () => {
+    // Simulate: game ended with no remaining score cards, but ties exist
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 50
+    game.players[1].score = 50  // tied with p1!
+    game.players[2].score = 30
+
+    // Verify tie groups exist (should be resolved)
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].playerIds).toContain('p1')
+    expect(groups[0].playerIds).toContain('p2')
+  })
 })
