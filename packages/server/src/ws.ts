@@ -202,6 +202,14 @@ function resolveBoxerTiebreakRound(io: ReturnType<typeof Server>, roomCode: stri
 
   if (survivors.length === 1) {
     const championId = getWinner(survivors)
+    // Assign tiebreak order within score group: winner=0, others=1,2...
+    const groupScore = game.players.find(p => p.id === survivors[0])!.score
+    let order = 0
+    for (const p of game.players) {
+      if (p.score === groupScore) {
+        p.tiebreakOrder = p.id === championId ? 0 : ++order
+      }
+    }
     const champion = game.players.find(p => p.id === championId)!
     champion.hasBoxerBadge = true
     champion.boxerWins++
@@ -244,7 +252,7 @@ function finishBoxerFlow(io: ReturnType<typeof Server>, roomCode: string, game: 
   if (!room) return
   game.boxerState = null
 
-  const sorted = [...game.players].sort((a, b) => b.score - a.score)
+  const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
   const pc = game.players.length
 
   // Save surrender info for after next game's cards are dealt

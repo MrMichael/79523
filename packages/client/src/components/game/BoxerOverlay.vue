@@ -8,7 +8,7 @@
           <span class="card-symbol">{{ cardLabel(store.boxerScoreCard) }}</span>
           <span class="card-points">+{{ cardPoints(store.boxerScoreCard) }}分</span>
         </div>
-        <div v-else class="tiebreak-badge">冠军决胜</div>
+        <div v-else class="tiebreak-badge">排位决胜</div>
         <!-- Player scores summary -->
         <div class="boxer-scores">
           <div v-for="(name, id) in playerNames" :key="id" class="boxer-score-row">

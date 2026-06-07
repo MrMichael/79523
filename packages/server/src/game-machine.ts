@@ -5,7 +5,7 @@ import type { ServerGame, GamePlayer } from './types'
 export function initGame(playerIds: string[], leadPlayerId?: string): ServerGame {
   const deck = shuffle(createDeck(playerIds.length))
   const players: GamePlayer[] = playerIds.map(id => ({
-    id, hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false, boxerWins: 0,
+    id, hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false, boxerWins: 0, tiebreakOrder: 0,
   }))
   for (const player of players) {
     const { drawn, deck: remaining } = draw(deck, 5)

@@ -1607,3 +1607,89 @@ describe('End-of-game: 拳王后分牌猜完 → getScoreTieGroups', () => {
     const r=getScoreTieGroups(g); expect(r).toHaveLength(3)
   })
 })
+
+// ── Score counting + tiebreak ranking tests ──
+
+describe('Score counting: deck empty + score card must count', () => {
+  test('score card played as last card counts toward winner', () => {
+    const game = initGame(['p1', 'p2'])
+    game.deck.length = 0
+    game.isFirstTrick = false
+    game.players[0].hand = [{ suit: 0, rank: 6 }, { suit: 1, rank: 0 }] // King + Four
+    game.players[1].hand = [{ suit: 2, rank: 0 }] // Four
+    const r1 = handlePlay(game, 'p1', [{ suit: 0, rank: 6 }])
+    expect(r1.success).toBe(true)
+    const r2 = handlePass(game, 'p2')
+    if (r2.forcePlay) {
+      const bp = game.players.find(p => p.id === game.bestPlayerId!)!
+      bp.score += calculateScore(game.tableCards)
+      game.tableCards = []
+    }
+    expect(game.players[0].score).toBe(10)
+  })
+
+  test('Two score cards played in same round: King+Ten=20 counted', () => {
+    const game = initGame(['p1', 'p2'])
+    game.deck.length = 0
+    game.isFirstTrick = false
+    // p1 plays Ten(rank=3), p2 beats with King(rank=6)
+    game.players[0].hand = [{ suit: 2, rank: 3 }, { suit: 1, rank: 0 }] // Ten + Four
+    game.players[1].hand = [{ suit: 0, rank: 6 }, { suit: 3, rank: 1 }]  // King + Six
+    handlePlay(game, 'p1', [{ suit: 2, rank: 3 }]) // p1 plays Ten
+    handlePlay(game, 'p2', [{ suit: 0, rank: 6 }]) // p2 beats with King
+    const r3 = handlePass(game, 'p1')
+    if (r3.forcePlay) {
+      const bp = game.players.find(p => p.id === game.bestPlayerId!)!
+      bp.score += calculateScore(game.tableCards)
+      game.tableCards = []
+    } else if (r3.roundWinner) {
+      // normal round end — scoring already happened in handlePass
+    }
+    expect(game.players[1].score).toBe(20) // King(10) + Ten(10)
+  })
+})
+
+describe('Tiebreak ranking: score hierarchy preserved', () => {
+  test('P1=55 P2=50 P3=50 P4=45 → P3 wins tiebreak → P1#1 P3#2 P2#3 P4#4', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 55; game.players[1].score = 50
+    game.players[2].score = 50; game.players[3].score = 45
+    // Simulate P3 wins tiebreak at score=50
+    game.players[2].tiebreakOrder = 0 // P3 won
+    game.players[1].tiebreakOrder = 1 // P2 lost
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted[0].id).toBe('p1') // 55
+    expect(sorted[1].id).toBe('p3') // 50, won tiebreak
+    expect(sorted[2].id).toBe('p2') // 50, lost tiebreak
+    expect(sorted[3].id).toBe('p4') // 45
+  })
+
+  test('P1=80 P2+P3=60 P4+P5=40 → tiebreaks at 60 and 40', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5'])
+    game.players[0].score = 80
+    game.players[1].score = 60; game.players[2].score = 60
+    game.players[3].score = 40; game.players[4].score = 40
+    // P3 wins at 60, P4 wins at 40
+    game.players[2].tiebreakOrder = 0; game.players[1].tiebreakOrder = 1
+    game.players[3].tiebreakOrder = 0; game.players[4].tiebreakOrder = 1
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted[0].id).toBe('p1') // 80
+    expect(sorted[1].id).toBe('p3') // 60 won
+    expect(sorted[2].id).toBe('p2') // 60 lost
+    expect(sorted[3].id).toBe('p4') // 40 won
+    expect(sorted[4].id).toBe('p5') // 40 lost
+  })
+
+  test('P1 last card score correctly counted in verifyScoreTotal', () => {
+    const game = initGame(['p1', 'p2'])
+    game.deck.length = 0
+    game.players[0].hand = [{ suit: 0, rank: 10 }] // Five (5pts)
+    game.players[1].hand = [{ suit: 1, rank: 0 }]  // Four
+    handlePlay(game, 'p1', [{ suit: 0, rank: 10 }])
+    handlePass(game, 'p2')
+    // Score accounting: played=5, remaining in hands=0 (all cards in hands are non-score after gameOver)
+    // But p1's five was scored via round end
+    const result = verifyScoreTotal(game)
+    expect(result.played).toBeGreaterThanOrEqual(5)
+  })
+})

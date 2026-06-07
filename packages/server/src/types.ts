@@ -64,6 +64,7 @@ export interface GamePlayer {
   finished: boolean
   hasBoxerBadge: boolean
   boxerWins: number  // per-game boxer round wins (for champion determination)
+  tiebreakOrder: number  // 0=won tiebreak, 1=lost, etc. For ranking within same score
 }
 
 export interface ServerEvents {
