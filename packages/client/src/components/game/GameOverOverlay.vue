@@ -1,6 +1,6 @@
 <template>
   <Transition name="overlay">
-    <div v-if="store.gameOver" class="game-over-overlay">
+    <div v-if="store.gameOver && (store.boxerPhase === 'idle' || store.boxerPhase === 'done')" class="game-over-overlay">
       <div class="game-over-card">
         <h2 class="overlay-title">🎉 游戏结束</h2>
         <div class="rankings">

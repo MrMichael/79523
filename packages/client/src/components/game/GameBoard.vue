@@ -67,7 +67,7 @@ function onBoxerMove(move: string) { emit('boxerMove', move) }
 .self-score { text-align: center; padding: 0.25rem; font-size: 0.85rem; color: #94a3b8; }
 .self-score strong { color: #fbbf24; }
 .error-toast {
-  position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%);
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
   background: rgba(251,191,36,0.9); color: #1a1a2e; padding: 0.35rem 0.9rem;
   border-radius: 6px; font-size: 0.8rem; font-weight: 500; z-index: 100;
   cursor: pointer; box-shadow: 0 2px 8px rgba(251,191,36,0.25);

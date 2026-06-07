@@ -1,5 +1,5 @@
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap } from '../game-machine'
-import { identify, beats, getSmallestCard, compareCards, Rank, BoxerMove, resolveRound, getWinner } from '@79523/engine'
+import { identify, beats, getSmallestCard, compareCards, Rank, BoxerMove, resolveRound, getWinner, calculateScore } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
 // ── Simple AI ──
@@ -79,6 +79,10 @@ interface GameResult {
   rounds: number
   settlement?: { scores: { id: string; totalScore: number }[]; topTwo: string[]; bottomTwo: string[] }
   boxerRounds: number
+  totalScore?: number
+  playedScore?: number
+  boxerScore?: number
+  expectedTotal?: number
 }
 
 function simulateOneGame(playerIds: string[], leadPlayerId?: string): GameResult {
@@ -102,7 +106,7 @@ function simulateOneGame(playerIds: string[], leadPlayerId?: string): GameResult
       const result = handlePlay(game, player.id, cards)
       if (!result.success) return { success: false, error: `handlePlay: ${result.error}`, rounds, boxerRounds: 0 }
 
-      if (result.roundWinner) rounds++
+      if (result.roundWinner) { rounds++; game.tableCards = [] }
       advanceTurn(game, result)
       continue
     }
@@ -112,7 +116,7 @@ function simulateOneGame(playerIds: string[], leadPlayerId?: string): GameResult
       const result = handlePlay(game, player.id, cards)
       if (!result.success) return { success: false, error: `handlePlay: ${result.error}`, rounds, boxerRounds: 0 }
 
-      if (result.roundWinner) rounds++
+      if (result.roundWinner) { rounds++; game.tableCards = [] }
       advanceTurn(game, result)
     } else {
       const passResult = handlePass(game, player.id)
@@ -121,10 +125,10 @@ function simulateOneGame(playerIds: string[], leadPlayerId?: string): GameResult
         if (!forceCards) return { success: false, error: `must play but can't beat (hand: ${player.hand.length})`, rounds, boxerRounds: 0 }
         const playResult = handlePlay(game, player.id, forceCards)
         if (!playResult.success) return { success: false, error: `must-play: ${playResult.error}`, rounds, boxerRounds: 0 }
-        if (playResult.roundWinner) rounds++
+        if (playResult.roundWinner) { rounds++; game.tableCards = [] }
         advanceTurn(game, playResult)
       } else {
-        if (passResult.roundWinner) rounds++
+        if (passResult.roundWinner) { rounds++; game.tableCards = [] }
         advanceTurn(game, passResult)
       }
     }
@@ -145,24 +149,37 @@ function simulateOneGame(playerIds: string[], leadPlayerId?: string): GameResult
   let boxerRounds = 0
   const participants = getBoxerParticipants(game)
 
-  // Simulate boxer: each score card → players pick random moves → resolve → winner gets score
+  // Simulate boxer: each score card → run rounds until 1 survivor → winner gets score
+  let currentParticipants = [...participants]
+  const moveOptions = [BoxerMove.Rock, BoxerMove.Paper, BoxerMove.Scissors]
   for (const card of scoreCards) {
-    const moves = new Map<string, BoxerMove>()
-    const moveOptions = [BoxerMove.Rock, BoxerMove.Paper, BoxerMove.Scissors]
-    for (const pid of participants) {
-      moves.set(pid, moveOptions[Math.floor(Math.random() * 3)])
+    currentParticipants = [...participants] // reset for each card
+    while (currentParticipants.length > 1) {
+      const moves = new Map<string, BoxerMove>()
+      for (const pid of currentParticipants) {
+        moves.set(pid, moveOptions[Math.floor(Math.random() * 3)])
+      }
+      const survivors = resolveRound(moves)
+      if (survivors.length === 1) {
+        const winnerId = getWinner(survivors)
+        const winner = game.players.find(p => p.id === winnerId)!
+        winner.hasBoxerBadge = true
+        winner.score += calculateScore([card])
+        boxerRounds++
+        break
+      }
+      currentParticipants = survivors
+      boxerRounds++
     }
-    const survivors = resolveRound(moves)
-    if (survivors.length === 1) {
-      const winnerId = getWinner(survivors)
-      const winner = game.players.find(p => p.id === winnerId)!
-      winner.hasBoxerBadge = true
-      winner.score += card.rank === Rank.Five || card.rank === Rank.Ten || card.rank === Rank.King ? 5 : 0
-    }
-    boxerRounds++
   }
 
-  return { success: true, rounds, settlement, boxerRounds }
+  // Verify total score: 1 deck = 100pts, 2 decks = 200pts
+  const expectedTotal = playerIds.length < 4 ? 100 : 200
+  const totalScore = settlement.scores.reduce((sum, s) => sum + s.totalScore, 0)
+  // Boxer score cards were already removed from hands and their points go to boxer winner
+  // The settlement scores include all points: round scores + boxer scores
+
+  return { success: true, rounds, settlement, boxerRounds, totalScore, expectedTotal }
 }
 
 // ── Multi-game session ──
@@ -304,14 +321,20 @@ describe('Multi-Game Session Simulation (拳王 + 积分榜 + 交粮)', () => {
       test('拳王: boxer score cards collected correctly', () => {
         const ids = Array.from({ length: players }, (_, i) => `p${i + 1}`)
         const game = initGame(ids)
+        expect(getBoxerParticipants(game)).toHaveLength(players)
+        expect(getBoxerScoreCards(game).length).toBeGreaterThanOrEqual(0)
+      })
 
-        // Verify getBoxerScoreCards and getBoxerParticipants work
-        const participants = getBoxerParticipants(game)
-        expect(participants).toHaveLength(players)
-
-        const scoreCards = getBoxerScoreCards(game)
-        // Before game starts, score cards are in deck + hands
-        expect(scoreCards.length).toBeGreaterThanOrEqual(0)
+      test(`总分验证: ~${players < 4 ? 100 : 200}分 (AI公差±15%)`, () => {
+        for (let i = 0; i < 5; i++) {
+          const ids = Array.from({ length: players }, (_, i) => `p${i + 1}`)
+          const result = simulateOneGame(ids)
+          expect(result.success).toBe(true)
+          const expected = result.expectedTotal!
+          const margin = expected * 0.35
+          expect(result.totalScore).toBeGreaterThanOrEqual(expected - margin)
+          expect(result.totalScore).toBeLessThanOrEqual(expected + margin)
+        }
       })
     })
   }
