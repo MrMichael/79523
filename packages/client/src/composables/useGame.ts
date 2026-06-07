@@ -181,6 +181,20 @@ export function useGame() {
       clog('surrender_swap', losers?.map((l:any) => l.id))
     })
 
+    socket.value?.on('boxer_champion', ({ playerId, scores }: any) => {
+      clog('boxer_champion', playerId)
+      store.boxerWinnerId = playerId
+      if (scores) {
+        const updated: Record<string, number> = {}
+        for (const s of scores) updated[s.id] = s.score
+        store.boxerGameScores = updated
+      }
+    })
+
+    socket.value?.on('boxer_tiebreak', ({ participants, info }: any) => {
+      clog('boxer_tiebreak', info)
+    })
+
     socket.value?.on('scores_updated', ({ scores }: any) => {
       const updated: Record<string, number> = {}
       for (const s of scores) updated[s.id] = s.totalScore ?? s.score ?? 0

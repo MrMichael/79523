@@ -3,11 +3,12 @@
     <div class="boxer-card">
       <!-- Score card display -->
       <div class="score-card-area">
-        <p class="boxer-title">拳王争霸</p>
+        <p class="boxer-title">{{ store.boxerScoreCard ? '拳王争霸' : '决胜局' }}</p>
         <div v-if="store.boxerScoreCard" class="score-card-badge">
           <span class="card-symbol">{{ cardLabel(store.boxerScoreCard) }}</span>
           <span class="card-points">+{{ cardPoints(store.boxerScoreCard) }}分</span>
         </div>
+        <div v-else class="tiebreak-badge">冠军决胜</div>
         <!-- Player scores summary -->
         <div class="boxer-scores">
           <div v-for="(name, id) in playerNames" :key="id" class="boxer-score-row">
@@ -176,11 +177,12 @@ onUnmounted(() => {
 }
 .boxer-title { font-size: 1.5rem; font-weight: 700; color: #e2b04a; margin-bottom: 0.75rem; }
 .score-card-area { margin-bottom: 1rem; }
-.score-card-badge {
+.score-card-badge, .tiebreak-badge {
   display: inline-flex; align-items: center; gap: 0.5rem;
   background: #2a2a4a; border: 1px solid #e2b04a; border-radius: 0.5rem;
   padding: 0.5rem 1rem; font-size: 1.2rem;
 }
+.tiebreak-badge { border-color: #ff6b6b; color: #ff6b6b; }
 .card-symbol { font-size: 1.5rem; }
 .card-points { color: #4fc3f7; font-weight: 700; }
 

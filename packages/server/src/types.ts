@@ -63,6 +63,7 @@ export interface GamePlayer {
   totalScore: number
   finished: boolean
   hasBoxerBadge: boolean
+  boxerWins: number  // per-game boxer round wins (for champion determination)
 }
 
 export interface ServerEvents {

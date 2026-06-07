@@ -59,6 +59,7 @@ function processBoxerRound(io: ReturnType<typeof Server>, roomCode: string, game
     const card = bs.scoreCards[bs.currentCardIndex]
     const winner = game.players.find(p => p.id === winnerId)!
     winner.hasBoxerBadge = true
+    winner.boxerWins++
     winner.score += isScoreCard(card) ? calculateScore([card]) : 0
 
     // Track boxer wins
@@ -75,7 +76,7 @@ function processBoxerRound(io: ReturnType<typeof Server>, roomCode: string, game
     if (bs.currentCardIndex < bs.scoreCards.length) {
       startBoxerRound(io, roomCode, game)
     } else {
-      finishBoxerFlow(io, roomCode, game)
+      resolveBoxerChampion(io, roomCode, game)
     }
   } else {
     const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
@@ -90,6 +91,122 @@ function processBoxerRound(io: ReturnType<typeof Server>, roomCode: string, game
         const p = room?.players.find(rp => rp.id === id)
         if (p) io.to(p.socketId).emit('boxer_start', {
           scoreCard: bs.scoreCards[bs.currentCardIndex],
+          participants: [...survivors],
+        })
+      }
+    }, 2000)
+  }
+}
+
+function resolveBoxerChampion(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>) {
+  // Find players with the most boxer wins this game
+  const maxWins = Math.max(...game.players.map(p => p.boxerWins))
+  const champions = game.players.filter(p => p.boxerWins === maxWins)
+
+  if (champions.length === 1 || maxWins === 0) {
+    // Clear champion or no wins at all → done
+    finishBoxerFlow(io, roomCode, game)
+    return
+  }
+
+  // Tie: start tiebreaker with tied players only
+  log('BOXER_TIEBREAK', roomCode, `tied=${champions.map(p => p.id).join(',')} wins=${maxWins}`)
+  io.to(roomCode).emit('boxer_tiebreak', {
+    participants: champions.map(p => p.id),
+    info: `${champions.map(p => {
+      const rp = getRoom(roomCode)?.players.find(r => r.id === p.id)
+      return rp?.name || p.id
+    }).join(' vs ')} 决胜局！`,
+    wins: maxWins,
+  })
+
+  // Set up boxer state with tied players only
+  game.boxerState = {
+    scoreCards: [], // no score card at stake
+    currentCardIndex: 0,
+    currentSurvivors: champions.map(p => p.id),
+    currentMoves: new Map(),
+    round: 0,
+  }
+  setTimeout(() => {
+    startBoxerTiebreakRound(io, roomCode, game)
+  }, 2000)
+}
+
+function startBoxerTiebreakRound(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>) {
+  const bs = game.boxerState!
+  bs.currentMoves.clear()
+  bs.round = 0
+  const room = getRoom(roomCode)
+  const gameScores: Record<string, number> = {}
+  const boxerWins: Record<string, number> = {}
+  for (const p of game.players) gameScores[p.id] = p.score
+  for (const rp of room?.players || []) boxerWins[rp.id] = rp.boxerWins
+
+  for (const id of bs.currentSurvivors) {
+    const p = room?.players.find(rp => rp.id === id)
+    if (p) io.to(p.socketId).emit('boxer_start', {
+      scoreCard: null, // tiebreaker: no score card
+      participants: [...bs.currentSurvivors],
+      gameScores,
+      boxerWins,
+    })
+  }
+  // Other players get spectator view
+  const allIds = game.players.map(p => p.id)
+  for (const id of allIds) {
+    if (!bs.currentSurvivors.includes(id)) {
+      const p = room?.players.find(rp => rp.id === id)
+      if (p) io.to(p.socketId).emit('boxer_start', {
+        scoreCard: null,
+        participants: [...bs.currentSurvivors],
+        gameScores,
+        boxerWins,
+        spectators: true,
+      })
+    }
+  }
+}
+
+/** Resolve tiebreaker round: first player to win becomes champion */
+function resolveBoxerTiebreakRound(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>) {
+  const bs = game.boxerState!
+  bs.round++
+
+  const survivors = resolveRound(bs.currentMoves)
+  const moveMap: Record<string, string> = {}
+  for (const [id, move] of bs.currentMoves) moveMap[id] = move
+  io.to(roomCode).emit('boxer_reveal', { moves: moveMap })
+
+  if (survivors.length === 1) {
+    const championId = getWinner(survivors)
+    const champion = game.players.find(p => p.id === championId)!
+    champion.hasBoxerBadge = true
+    champion.boxerWins++
+    const room = getRoom(roomCode)
+    const roomPlayer = room?.players.find(p => p.id === championId)
+    if (roomPlayer) roomPlayer.boxerWins++
+
+    io.to(roomCode).emit('boxer_champion', {
+      playerId: championId,
+      scores: game.players.map(p => ({ id: p.id, score: p.score })),
+    })
+
+    log('BOXER_CHAMPION', roomCode, championId)
+    setTimeout(() => finishBoxerFlow(io, roomCode, game), 2000)
+  } else {
+    const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
+    for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
+    bs.currentSurvivors = survivors
+    bs.currentMoves.clear()
+
+    setTimeout(() => {
+      if (!game.boxerState || game.boxerState.currentSurvivors !== survivors) return
+      const room = getRoom(roomCode)
+      for (const id of survivors) {
+        const p = room?.players.find(rp => rp.id === id)
+        if (p) io.to(p.socketId).emit('boxer_start', {
+          scoreCard: null,
           participants: [...survivors],
         })
       }
@@ -871,7 +988,11 @@ export function setupWebSocket(httpServer: HttpServer) {
       }
       bs.currentMoves.set(currentPlayerId, move as BoxerMove)
       if (bs.currentMoves.size >= bs.currentSurvivors.length) {
-        processBoxerRound(io, currentRoomCode, room.game)
+        if (bs.scoreCards.length === 0) {
+          resolveBoxerTiebreakRound(io, currentRoomCode, room.game)
+        } else {
+          processBoxerRound(io, currentRoomCode, room.game)
+        }
       }
     })
 
