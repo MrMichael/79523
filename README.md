@@ -6,10 +6,10 @@
 
 ```bash
 # 安装依赖
-pnpm install
+npx pnpm install
 
 # 启动开发环境（前端 :5173 + 后端 :3000）
-pnpm dev
+npx pnpm dev
 ```
 
 浏览器打开 `http://localhost:5173`。
@@ -36,13 +36,13 @@ packages/
 ## 命令
 
 ```bash
-pnpm dev           # 同时启动前后端
-pnpm dev:server    # 仅服务端 :3000
-pnpm dev:client    # 仅前端 :5173
-pnpm test          # 引擎 + 服务端测试
-pnpm test:engine   # 引擎测试 (vitest)
-pnpm test:server   # 服务端测试 (jest)
-pnpm test:client   # 前端测试 (vitest)
+npx pnpm dev           # 同时启动前后端
+npx pnpm dev:server    # 仅服务端 :3000
+npx pnpm dev:client    # 仅前端 :5173
+npx pnpm test          # 引擎 + 服务端测试
+npx pnpm test:engine   # 引擎测试 (vitest)
+npx pnpm test:server   # 服务端测试 (jest)
+npx pnpm test:client   # 前端测试 (vitest)
 
 # E2E 冒烟测试
 npx playwright test --config packages/client/playwright.config.ts
@@ -82,7 +82,7 @@ Vite 已配置 `host: '0.0.0.0'`，启动后局域网设备可连接。
 hostname -I
 
 # 启动
-pnpm dev
+npx pnpm dev
 ```
 
 其他设备访问 `http://<本机IP>:5173`。
