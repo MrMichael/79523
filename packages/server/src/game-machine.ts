@@ -71,8 +71,6 @@ export function handlePlay(
   }
 
   player.hand = player.hand.filter(c => !playerCards.some(pc => pc.suit === c.suit && pc.rank === c.rank))
-  // Only mark finished when deck is also empty — player can draw new cards otherwise (Design §4.4)
-  if (player.hand.length === 0 && game.deck.length === 0) player.finished = true
 
   const wasBeating = game.bestPlayerId !== null
 
@@ -87,7 +85,12 @@ export function handlePlay(
     game.passCount = 0
   }
 
-  const activePlayers = game.players.filter(p => !p.finished).length
+  // Count active players BEFORE marking current player as finished
+  // Ensures trailing players still get their turn (Design §4.6)
+  const activePlayersBefore = game.players.filter(p => !p.finished).length
+  // Only mark finished when deck is also empty — player can draw new cards otherwise (Design §4.4)
+  if (player.hand.length === 0 && game.deck.length === 0) player.finished = true
+  const activePlayers = Math.max(activePlayersBefore, game.players.filter(p => !p.finished).length)
   if (game.passCount >= activePlayers - 1) {
     if (game.bestPlayerId) {
       const winner = game.players.find(p => p.id === game.bestPlayerId)!

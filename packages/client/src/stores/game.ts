@@ -37,7 +37,7 @@ export const useGameStore = defineStore('game', () => {
   const selectedCount = computed(() => selectedCards.value.length)
 
   function selectCard(card: Card) {
-    const idx = selectedCards.value.findIndex(c => c.suit === card.suit && c.rank === card.rank)
+    const idx = selectedCards.value.indexOf(card)
     if (idx >= 0) selectedCards.value.splice(idx, 1)
     else selectedCards.value.push(card)
   }

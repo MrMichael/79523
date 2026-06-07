@@ -75,6 +75,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useGameStore } from '@/stores/game'
+import { watch } from 'vue'
 import type { Card, Rank, Suit } from '@79523/engine'
 
 const store = useGameStore()
@@ -82,6 +83,15 @@ const moveSubmitted = ref(false)
 const countdown = ref(3)
 const revealPhase = ref<'hidden' | 'revealing' | 'shown'>('hidden')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+let winnerTimer: ReturnType<typeof setTimeout> | null = null
+
+// Auto-hide winner announcement after 2s
+watch(() => store.boxerWinnerId, (id) => {
+  if (id) {
+    if (winnerTimer) clearTimeout(winnerTimer)
+    winnerTimer = setTimeout(() => { store.boxerWinnerId = '' }, 2000)
+  }
+})
 
 const props = defineProps<{ playerNames: Record<string, string> }>()
 const emit = defineEmits<{ boxerMove: [move: string] }>()
