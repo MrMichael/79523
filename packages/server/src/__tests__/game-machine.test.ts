@@ -14,6 +14,7 @@ import {
   getBoxerParticipants,
   executeSurrenderSwap,
   verifyScoreTotal,
+  getScoreTieGroups,
 } from '../game-machine'
 
 // ---------------------------------------------------------------------------
@@ -1418,5 +1419,70 @@ describe('Surrender card count integrity', () => {
 
     const after = game.players.map(p => p.hand.length)
     expect(after).toEqual(before)
+  })
+})
+
+// ── Score ranking tiebreaker tests ──
+
+describe('getScoreTieGroups — 排位决胜分组', () => {
+  test('P1=55 P2=50 P3=50 P4=45 → only P2+P3 tied', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 55
+    game.players[1].score = 50
+    game.players[2].score = 50
+    game.players[3].score = 45
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].score).toBe(50)
+    expect(groups[0].playerIds.sort()).toEqual(['p2', 'p3'].sort())
+  })
+
+  test('all unique scores → no tie groups', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 60
+    game.players[1].score = 40
+    game.players[2].score = 20
+    expect(getScoreTieGroups(game)).toHaveLength(0)
+  })
+
+  test('two tie groups: P1+P2 at 60, P3+P4 at 40 → sorted descending', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 60
+    game.players[1].score = 60
+    game.players[2].score = 40
+    game.players[3].score = 40
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(2)
+    expect(groups[0].score).toBe(60) // higher first
+    expect(groups[1].score).toBe(40)
+    expect(groups[0].playerIds.sort()).toEqual(['p1', 'p2'].sort())
+    expect(groups[1].playerIds.sort()).toEqual(['p3', 'p4'].sort())
+  })
+
+  test('three-way tie at same score', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 50
+    game.players[1].score = 50
+    game.players[2].score = 50
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].playerIds).toHaveLength(3)
+  })
+
+  test('P1=55 P2=50 P3=50 P4=45 → P3 wins tiebreak → rank: P1 P3 P2 P4', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 55 // p1
+    game.players[1].score = 50 // p2
+    game.players[2].score = 50 // p3
+    game.players[3].score = 45 // p4
+
+    // p3 wins tiebreak → should rank above p2
+    // Resulting order: p1(55), p3(50), p2(50), p4(45)
+    // This test validates the grouping logic; actual ranking is done by tiebreaker rounds
+    const groups = getScoreTieGroups(game)
+    expect(groups[0].playerIds).toContain('p2')
+    expect(groups[0].playerIds).toContain('p3')
+    expect(groups[0].playerIds).not.toContain('p1')
+    expect(groups[0].playerIds).not.toContain('p4')
   })
 })

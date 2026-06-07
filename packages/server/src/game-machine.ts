@@ -261,6 +261,20 @@ export function verifyScoreTotal(game: ServerGame): {
   }
 }
 
+/** Group players by score, return only tied groups (≥2 players), sorted descending */
+export function getScoreTieGroups(game: ServerGame): { score: number; playerIds: string[] }[] {
+  const byScore = new Map<number, string[]>()
+  for (const p of game.players) {
+    const ids = byScore.get(p.score) || []
+    ids.push(p.id)
+    byScore.set(p.score, ids)
+  }
+  return Array.from(byScore.entries())
+    .filter(([, ids]) => ids.length > 1)
+    .sort(([a], [b]) => b - a)
+    .map(([score, ids]) => ({ score, playerIds: ids }))
+}
+
 /** All non-finished players who should participate in boxer rounds */
 export function getBoxerParticipants(game: ServerGame): string[] {
   return game.players.map(p => p.id)

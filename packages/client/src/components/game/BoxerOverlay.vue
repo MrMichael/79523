@@ -19,8 +19,13 @@
         </div>
       </div>
 
+      <!-- Spectating -->
+      <div v-if="isSpectating" class="spectating-area">
+        <p class="spectating-msg">观摩排位决胜中...</p>
+      </div>
+
       <!-- Awaiting moves -->
-      <div v-if="store.boxerPhase === 'awaiting'" class="move-selection">
+      <div v-if="store.boxerPhase === 'awaiting' && !isSpectating" class="move-selection">
         <p class="prompt">选择你的出拳</p>
         <div class="countdown" :class="{ urgent: countdown <= 1 }">{{ countdown > 0 ? countdown : '⚡' }}</div>
         <div class="move-buttons">
@@ -80,6 +85,9 @@ import { watch } from 'vue'
 import type { Card, Rank, Suit } from '@79523/engine'
 
 const store = useGameStore()
+const isSpectating = computed(() =>
+  store.boxerParticipants.length > 0 && !store.boxerParticipants.includes(store.myId)
+)
 const moveSubmitted = ref(false)
 const countdown = ref(3)
 const revealPhase = ref<'hidden' | 'revealing' | 'shown'>('hidden')

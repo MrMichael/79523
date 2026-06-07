@@ -3,7 +3,7 @@ import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
-import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand } from './game-machine'
+import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
@@ -129,37 +129,26 @@ function resolveBoxerChampion(io: ReturnType<typeof Server>, roomCode: string, g
 
 /** Find tied score groups and run ranking tiebreakers to produce unique ordering */
 function resolveScoreRankings(io: ReturnType<typeof Server>, roomCode: string, game: NonNullable<Room['game']>, startGroupIdx = 0) {
-  // Group players by score
-  const byScore = new Map<number, string[]>()
-  for (const p of game.players) {
-    const ids = byScore.get(p.score) || []
-    ids.push(p.id)
-    byScore.set(p.score, ids)
-  }
-
-  // Find groups with ties (descending score order)
-  const tiedGroups = Array.from(byScore.entries())
-    .filter(([, ids]) => ids.length > 1)
-    .sort(([a], [b]) => b - a)
+  const tiedGroups = getScoreTieGroups(game)
 
   if (tiedGroups.length === 0 || startGroupIdx >= tiedGroups.length) {
     finishBoxerFlow(io, roomCode, game)
     return
   }
 
-  const [score, ids] = tiedGroups[startGroupIdx]
+  const group = tiedGroups[startGroupIdx]
   const room = getRoom(roomCode)
-  const names = ids.map(id => room?.players.find(r => r.id === id)?.name || id).join(' vs ')
-  log('SCORE_TIEBREAK', roomCode, `score=${score} players=${ids.join(',')}`)
+  const names = group.playerIds.map(id => room?.players.find(r => r.id === id)?.name || id).join(' vs ')
+  log('SCORE_TIEBREAK', roomCode, `score=${group.score} players=${group.playerIds.join(',')}`)
 
   io.to(roomCode).emit('boxer_tiebreak', {
-    participants: ids,
-    info: `${names} 排位决胜局！(${score}分并列)`,
+    participants: group.playerIds,
+    info: `${names} 排位决胜局！(${group.score}分并列)`,
   })
 
   game.boxerState = {
     scoreCards: [], currentCardIndex: 0,
-    currentSurvivors: [...ids],
+    currentSurvivors: [...group.playerIds],
     currentMoves: new Map(), round: 0,
     tieGroupIndex: startGroupIdx,
   }
