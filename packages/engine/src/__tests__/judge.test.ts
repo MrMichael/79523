@@ -131,4 +131,19 @@ describe('beats', () => {
     const b2: Play = { type: HandType.Bike, cards: [], primaryRank: Rank.Two }
     expect(beats(b1, b2)).toBe(true)
   })
+  it('triple beats bike: higher rank wins', () => {
+    const triple: Play = { type: HandType.Triple, cards: [], primaryRank: Rank.Five }
+    const bike: Play = { type: HandType.Bike, cards: [], primaryRank: Rank.Two }
+    expect(beats(triple, bike)).toBe(true)
+  })
+  it('triple cannot beat bike: lower or equal rank loses', () => {
+    const triple: Play = { type: HandType.Triple, cards: [], primaryRank: Rank.Three }
+    const bike: Play = { type: HandType.Bike, cards: [], primaryRank: Rank.Five }
+    expect(beats(triple, bike)).toBe(false)
+  })
+  it('bike cannot beat triple (one-way rule)', () => {
+    const bike: Play = { type: HandType.Bike, cards: [], primaryRank: Rank.Nine }
+    const triple: Play = { type: HandType.Triple, cards: [], primaryRank: Rank.Two }
+    expect(beats(bike, triple)).toBe(false)
+  })
 })

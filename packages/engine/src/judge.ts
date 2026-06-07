@@ -66,6 +66,12 @@ export function identify(cards: Card[]): Play | null {
 }
 
 export function beats(newPlay: Play, currentBest: Play): boolean {
+  // Triple can beat Bike (one-way): Triple compares primaryRank vs Bike's primaryRank
+  if (newPlay.type === HandType.Triple && currentBest.type === HandType.Bike) {
+    return newPlay.primaryRank > currentBest.primaryRank
+  }
+
+  // All other cross-type plays are invalid
   if (newPlay.type !== currentBest.type) return false
 
   if (newPlay.primaryRank !== currentBest.primaryRank) {
