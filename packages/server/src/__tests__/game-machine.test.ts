@@ -1693,3 +1693,54 @@ describe('Tiebreak ranking: score hierarchy preserved', () => {
     expect(result.played).toBeGreaterThanOrEqual(5)
   })
 })
+
+// ── Regression: tiebreakOrder must not corrupt different-score rankings ──
+
+describe('Tiebreak order regression', () => {
+  test('P1=80 P2=50 P3=50 P4=30, P2 wins tiebreak → P1#1 P2#2 P3#3 P4#4', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 80 // p1 highest
+    game.players[1].score = 50 // p2
+    game.players[2].score = 50 // p3
+    game.players[3].score = 30 // p4 lowest
+    // P2 wins tiebreak at 50
+    game.players[1].tiebreakOrder = 0
+    game.players[2].tiebreakOrder = 1
+    // P1 and P4: tiebreakOrder=0 (default), different score groups
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p4'])
+  })
+
+  test('P1=60 P2+P3+P4=40, P3 wins → correct ordering within group', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 60
+    game.players[1].score = 40; game.players[2].score = 40; game.players[3].score = 40
+    game.players[2].tiebreakOrder = 0 // P3 won
+    game.players[1].tiebreakOrder = 1 // P2 second
+    game.players[3].tiebreakOrder = 2 // P4 third
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p3', 'p2', 'p4'])
+  })
+
+  test('no tiebreaks: all default order=0, sort by score only', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 80; game.players[1].score = 50; game.players[2].score = 30
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  test('P4 lowest should never rank above P2/P3 when P2+P3 tiebreak', () => {
+    // This is the exact user-reported bug scenario
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 80
+    game.players[1].score = 50; game.players[2].score = 50
+    game.players[3].score = 30
+    // P2 wins tiebreak
+    game.players[1].tiebreakOrder = 0
+    game.players[2].tiebreakOrder = 1
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    // P4(30) must be last, never above P2(50) or P3(50)
+    expect(sorted[3].id).toBe('p4')
+    expect(sorted.indexOf(sorted.find(p => p.id === 'p4')!)).toBe(3)
+  })
+})
