@@ -1,9 +1,9 @@
 <template>
   <div class="create-room">
-    <label class="field-label">昵称</label>
-    <input v-model="playerName" placeholder="输入你的昵称" maxlength="12" class="field-input" />
+    <label class="field-label">你的昵称</label>
+    <input v-model="playerName" placeholder="输入昵称" maxlength="12" class="field-input" />
 
-    <label class="field-label">人数</label>
+    <label class="field-label">玩家人数</label>
     <div class="player-count-group">
       <button v-for="n in [2,3,4,5,6]" :key="n"
         class="count-btn" :class="{ active: maxPlayers === n }"
@@ -33,25 +33,33 @@ function create() {
 
 <style scoped>
 .create-room {
-  display: flex; flex-direction: column; gap: 0.6rem;
-  background: #f8f9fa; border-radius: 14px; padding: 1.25rem;
+  display: flex; flex-direction: column; gap: 0.7rem;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px; padding: 1.25rem;
 }
-.field-label { font-size: 0.85rem; font-weight: 600; color: #555; }
+.field-label { font-size: 0.8rem; font-weight: 600; color: #94a3b8; }
 .field-input {
-  padding: 0.85rem; font-size: 1rem; border: 2px solid #e0e0e0;
-  border-radius: 10px; background: white; outline: none;
+  padding: 0.75rem 0.85rem; font-size: 1rem;
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+  background: rgba(255,255,255,0.06); color: #e2e8f0; outline: none;
+  transition: border-color 0.2s;
 }
-.field-input:focus { border-color: #4caf50; }
+.field-input::placeholder { color: #475569; }
+.field-input:focus { border-color: #fbbf24; }
 .player-count-group { display: flex; gap: 0.4rem; }
 .count-btn {
-  flex: 1; padding: 0.5rem 0; border: 2px solid #e0e0e0;
-  border-radius: 8px; background: white; font-size: 0.9rem; cursor: pointer;
+  flex: 1; padding: 0.5rem 0; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px; background: rgba(255,255,255,0.04); color: #94a3b8;
+  font-size: 0.85rem; cursor: pointer; transition: all 0.15s;
 }
-.count-btn.active { border-color: #4caf50; background: #4caf50; color: white; }
+.count-btn.active { border-color: #fbbf24; background: rgba(251,191,36,0.15); color: #fbbf24; }
+.count-btn:hover:not(.active) { background: rgba(255,255,255,0.08); }
 .create-btn {
-  margin-top: 0.5rem; padding: 0.9rem; font-size: 1.05rem;
+  margin-top: 0.5rem; padding: 0.85rem; font-size: 1rem;
   font-weight: 600; border: none; border-radius: 12px;
-  background: #4caf50; color: white; cursor: pointer;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #1a1a1a;
+  cursor: pointer; transition: all 0.15s;
 }
-.create-btn:disabled { background: #ccc; cursor: not-allowed; }
+.create-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(251,191,36,0.3); }
+.create-btn:disabled { background: rgba(255,255,255,0.06); color: #475569; cursor: not-allowed; transform: none; box-shadow: none; }
 </style>

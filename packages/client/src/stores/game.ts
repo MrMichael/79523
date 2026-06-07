@@ -13,6 +13,26 @@ export const useGameStore = defineStore('game', () => {
   const phase = ref<GamePhase | ''>('')
   const currentPlayerId = ref('')
   const myId = ref('')
+  const gameOver = ref(false)
+  const lastPlayType = ref('')
+  const lastPlayedCards = ref<Card[]>([])
+  const lastPlayPlayer = ref('')
+  const roundWinnerId = ref('')
+  const roundScoreCards = ref<Card[]>([])
+  const finalRankings = ref<{ id: string; totalScore: number }[]>([])
+  const errorMessage = ref('')
+  const trickVersion = ref(0)
+
+  // Boxer state
+  const boxerPhase = ref<'idle' | 'awaiting' | 'reveal' | 'eliminated' | 'done'>('idle')
+  const boxerScoreCard = ref<Card | null>(null)
+  const boxerParticipants = ref<string[]>([])
+  const boxerMoves = ref<Record<string, string>>({})
+  const boxerSurvivors = ref<string[]>([])
+  const boxerWinnerId = ref('')
+  const boxerCountdown = ref(3)
+  const boxerGameScores = ref<Record<string, number>>({})
+  const boxerWinCounts = ref<Record<string, number>>({})
 
   const selectedCount = computed(() => selectedCards.value.length)
 
@@ -23,9 +43,33 @@ export const useGameStore = defineStore('game', () => {
   }
   function clearSelection() { selectedCards.value = [] }
   function removeFromHand(cards: Card[]) {
-    myHand.value = myHand.value.filter(c => !cards.some(pc => pc.suit === c.suit && pc.rank === c.rank))
+    // Remove one card per entry (handles 2-deck duplicates correctly)
+    const hand = [...myHand.value]
+    for (const card of cards) {
+      const idx = hand.findIndex(c => c.suit === card.suit && c.rank === card.rank)
+      if (idx >= 0) hand.splice(idx, 1)
+    }
+    myHand.value = hand
   }
   function addToHand(cards: Card[]) { myHand.value.push(...cards) }
+  function clearError() { errorMessage.value = '' }
+  function clearRoundBanner() { roundWinnerId.value = ''; roundScoreCards.value = [] }
+  function bumpTrick() { trickVersion.value++ }
 
-  return { myHand, tableCards, selectedCards, scores, isMyTurn, timeLeft, deckCount, phase, currentPlayerId, myId, selectedCount, selectCard, clearSelection, removeFromHand, addToHand }
+  // Debug: trace isMyTurn changes
+  let _lastTurn = false
+  setInterval(() => {
+    if (isMyTurn.value !== _lastTurn) {
+      _lastTurn = isMyTurn.value
+      const stack = new Error().stack?.split('\n').slice(2, 6).join(' → ')
+      console.log(`[STORE] isMyTurn → ${isMyTurn.value} hand:${myHand.value.length} cur:${currentPlayerId.value} myId:${myId.value}`)
+    }
+  }, 100)
+
+  return {
+    myHand, tableCards, selectedCards, scores, isMyTurn, timeLeft, deckCount,
+    phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, roundWinnerId, roundScoreCards, finalRankings,
+    boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts,
+    selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick,
+  }
 })

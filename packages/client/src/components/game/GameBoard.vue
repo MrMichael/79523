@@ -1,15 +1,23 @@
 <template>
   <div class="game-board">
     <div class="other-players">
-      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" />
+      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" />
     </div>
     <div class="table-center">
       <DeckInfo :count="deckCount" />
       <TurnIndicator :isMyTurn="isMyTurn" :currentPlayer="currentPlayerName" :timeLeft="timeLeft" />
       <TableCards :cards="tableCards" />
-      <ScoreDisplay :scores="scores" :playerNames="playerNames" />
+    </div>
+    <div class="self-score" v-if="store.myId && scores[store.myId] !== undefined">
+      🏆 我的得分：<strong>{{ scores[store.myId] || 0 }}</strong> 分
     </div>
     <PlayerHand :myHand="myHand" :isMyTurn="isMyTurn" :mustPlay="mustPlay" @play="onPlay" @pass="onPass" />
+    <div v-if="store.errorMessage" class="error-toast" @click="store.clearError">{{ store.errorMessage }}</div>
+    <RoundBanner :playerNames="playerNames" :scores="scores" />
+    <GameOverOverlay :playerNames="playerNames" />
+    <BoxerOverlay :playerNames="playerNames" @boxer-move="onBoxerMove" />
+    <SurrenderOverlay />
+    <PlayBanner />
   </div>
 </template>
 
@@ -19,10 +27,14 @@ import { useGameStore } from '@/stores/game'
 import type { Card } from '@79523/engine'
 import PlayerHand from './PlayerHand.vue'
 import TableCards from './TableCards.vue'
-import ScoreDisplay from './ScoreDisplay.vue'
 import TurnIndicator from './TurnIndicator.vue'
 import DeckInfo from './DeckInfo.vue'
 import PlayerSlot from './PlayerSlot.vue'
+import RoundBanner from './RoundBanner.vue'
+import GameOverOverlay from './GameOverOverlay.vue'
+import BoxerOverlay from './BoxerOverlay.vue'
+import SurrenderOverlay from './SurrenderOverlay.vue'
+import PlayBanner from './PlayBanner.vue'
 
 const store = useGameStore()
 const props = defineProps<{
@@ -30,7 +42,7 @@ const props = defineProps<{
   currentPlayerId: string
   playerNames: Record<string, string>
 }>()
-const emit = defineEmits<{ play: [cards: Card[]]; pass: [] }>()
+const emit = defineEmits<{ play: [cards: Card[]]; pass: []; boxerMove: [move: string] }>()
 
 const myHand = computed(() => store.myHand)
 const tableCards = computed(() => store.tableCards)
@@ -41,13 +53,25 @@ const scores = computed(() => store.scores)
 const currentPlayerName = computed(() => props.playerNames[props.currentPlayerId] || '...')
 const mustPlay = computed(() => store.isMyTurn && !store.tableCards.length)
 const otherPlayers = computed(() => props.players.filter(p => p.id !== store.myId))
+const highestScore = computed(() => Math.max(...props.players.map(p => p.score), 0))
 
 function onPlay(cards: Card[]) { emit('play', cards) }
 function onPass() { emit('pass') }
+function onBoxerMove(move: string) { emit('boxerMove', move) }
 </script>
 
 <style scoped>
-.game-board { display: flex; flex-direction: column; height: 100%; max-height: 100svh; }
-.other-players { display: flex; justify-content: center; gap: 1rem; padding: 0.5rem; flex-wrap: wrap; }
-.table-center { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 0.5rem; padding: 0.5rem; overflow-y: auto; }
+.game-board { display: flex; flex-direction: column; height: 100%; max-height: 100dvh; }
+.other-players { display: flex; justify-content: center; gap: 0.75rem; padding: 0.5rem; flex-wrap: wrap; flex-shrink: 0; }
+.table-center { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 0.4rem; padding: 0.25rem 0.5rem; overflow-y: auto; }
+.self-score { text-align: center; padding: 0.25rem; font-size: 0.85rem; color: #94a3b8; }
+.self-score strong { color: #fbbf24; }
+.error-toast {
+  position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%);
+  background: rgba(251,191,36,0.9); color: #1a1a2e; padding: 0.35rem 0.9rem;
+  border-radius: 6px; font-size: 0.8rem; font-weight: 500; z-index: 100;
+  cursor: pointer; box-shadow: 0 2px 8px rgba(251,191,36,0.25);
+  animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(4px); } }
 </style>

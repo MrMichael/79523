@@ -1,10 +1,14 @@
 export type { Card, Suit, Rank, HandType, Play, BoxerMove, GamePhase } from '@79523/engine'
+import type { Card } from '@79523/engine'
 
 export interface PlayerInfo {
   id: string
   name: string
   ready: boolean
   connected: boolean
+  isHost?: boolean
+  wins?: number
+  boxerWins?: number
 }
 
 export interface UIGameState {

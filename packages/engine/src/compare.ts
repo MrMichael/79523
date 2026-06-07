@@ -5,6 +5,7 @@ export function compareCards(a: Card, b: Card): number {
   return b.suit - a.suit  // lower suit = stronger
 }
 
-export function getSmallestCard(cards: Card[]): Card {
+export function getSmallestCard(cards: Card[]): Card | null {
+  if (cards.length === 0) return null
   return cards.reduce((min, card) => compareCards(card, min) < 0 ? card : min)
 }

@@ -43,8 +43,12 @@ describe('identify', () => {
     expect(play!.type).toBe(HandType.Root)
     expect(play!.primaryRank).toBe(Rank.Five)
   })
-  it('returns null for 4 cards', () => {
-    expect(identify([c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Five), c(Suit.Diamond, Rank.Five)])).toBeNull()
+  it('identifies two pairs (2+2) as Root', () => {
+    const play = identify([c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Five), c(Suit.Diamond, Rank.Five)])
+    expect(play).not.toBeNull()
+    expect(play!.type).toBe(HandType.Root)
+    expect(play!.primaryRank).toBe(Rank.Seven)
+    expect(play!.secondaryRank).toBe(Rank.Five)
   })
   it('returns null for empty', () => {
     expect(identify([])).toBeNull()
@@ -59,10 +63,10 @@ describe('identify', () => {
 })
 
 describe('identify edge cases', () => {
-  it('rejects 4 cards', () => {
+  it('rejects 4 cards that are not two pairs', () => {
     expect(identify([
       c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven),
-      c(Suit.Club, Rank.Five), c(Suit.Diamond, Rank.Five),
+      c(Suit.Club, Rank.Seven), c(Suit.Diamond, Rank.Five),
     ])).toBeNull()
   })
   it('rejects 6 cards', () => {
@@ -72,11 +76,15 @@ describe('identify edge cases', () => {
       c(Suit.Spade, Rank.Three), c(Suit.Heart, Rank.Three),
     ])).toBeNull()
   })
-  it('full house (3+2) is NOT valid root', () => {
-    expect(identify([
+  it('full house (3+2) is valid Root', () => {
+    const play = identify([
       c(Suit.Spade, Rank.Five), c(Suit.Heart, Rank.Five), c(Suit.Club, Rank.Five),
       c(Suit.Diamond, Rank.King), c(Suit.Spade, Rank.King),
-    ])).toBeNull()
+    ])
+    expect(play).not.toBeNull()
+    expect(play!.type).toBe(HandType.Root)
+    expect(play!.primaryRank).toBe(Rank.Five)
+    expect(play!.secondaryRank).toBe(Rank.King)
   })
   it('correctly identifies all 5 hand types', () => {
     const single = identify([c(Suit.Spade, Rank.Seven)])

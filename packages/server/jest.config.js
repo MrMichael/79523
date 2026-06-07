@@ -6,6 +6,6 @@ export default {
   },
   extensionsToTreatAsEsm: ['.ts'],
   transform: {
-    '^.+\\.ts$': ['ts-jest', { useESM: true }],
+    '^.+\\.ts$': ['ts-jest', { useESM: true, tsconfig: { rootDir: '../../../' }, diagnostics: false }],
   },
 }

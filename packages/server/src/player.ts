@@ -2,13 +2,16 @@ import type { Player } from './types'
 
 const players = new Map<string, Player>()
 
-export function createPlayer(socketId: string, name: string): Player {
+export function createPlayer(socketId: string, name: string, isHost = false): Player {
   const player: Player = {
     id: socketId.slice(0, 8) + Date.now().toString(36),
     name,
     socketId,
     ready: false,
     connected: true,
+    isHost,
+    wins: 0,
+    boxerWins: 0,
   }
   players.set(player.id, player)
   return player

@@ -1,0 +1,943 @@
+import { describe, test, expect } from '@jest/globals'
+import { Suit, Rank, HandType, GamePhase, compareCards, getSmallestCard } from '@79523/engine'
+import type { Card } from '@79523/engine'
+import type { ServerGame } from '../types'
+import {
+  initGame,
+  handlePlay,
+  handlePass,
+  settleGame,
+  getLargestSingle,
+  removeCardFromHand,
+  determineNextLead,
+  getBoxerScoreCards,
+  getBoxerParticipants,
+  executeSurrenderSwap,
+} from '../game-machine'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const c = (suit: Suit, rank: Rank): Card => ({ suit, rank })
+
+function makeGame(overrides: Partial<ServerGame> = {}): ServerGame {
+  return {
+    phase: GamePhase.Playing,
+    deck: [],
+    players: [
+      { id: 'p1', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+      { id: 'p2', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+    ],
+    currentPlayerIndex: 0,
+    currentBestPlay: null,
+    bestPlayerId: null,
+    passCount: 0,
+    tableCards: [],
+    gameOver: false,
+    roundParticipants: new Set(),
+    isFirstTrick: false,
+    boxerState: null,
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// initGame
+// ---------------------------------------------------------------------------
+
+describe('initGame', () => {
+  test('2-player game deals 5 cards to each player', () => {
+    const game = initGame(['p1', 'p2'])
+
+    expect(game.players).toHaveLength(2)
+    expect(game.players[0].hand).toHaveLength(5)
+    expect(game.players[1].hand).toHaveLength(5)
+  })
+
+  test('deck size = 52 - players * 5 for 2-player game', () => {
+    const game = initGame(['p1', 'p2'])
+
+    // 52 - 2*5 = 42
+    expect(game.deck).toHaveLength(42)
+  })
+
+  test('first game: smallest single card holder leads (no leadPlayerId)', () => {
+    const game = initGame(['p1', 'p2'])
+
+    // Determine which player actually has the smallest card
+    const p1Min = getSmallestCard(game.players[0].hand)
+    const p2Min = getSmallestCard(game.players[1].hand)
+    const expectedLead = compareCards(p1Min, p2Min) < 0
+      ? game.players[0].id
+      : game.players[1].id
+
+    expect(game.players[game.currentPlayerIndex].id).toBe(expectedLead)
+  })
+
+  test('leadPlayerId parameter overrides automatic lead detection', () => {
+    const game = initGame(['p1', 'p2'], 'p2')
+
+    expect(game.players[game.currentPlayerIndex].id).toBe('p2')
+  })
+
+  test('game is in Playing phase', () => {
+    const game = initGame(['p1', 'p2'])
+
+    expect(game.phase).toBe(GamePhase.Playing)
+  })
+
+  test('initial passCount is 0', () => {
+    const game = initGame(['p1', 'p2'])
+
+    expect(game.passCount).toBe(0)
+  })
+
+  test('isFirstTrick is true for a new game', () => {
+    const game = initGame(['p1', 'p2'])
+
+    expect(game.isFirstTrick).toBe(true)
+  })
+
+  test('4-player game deals 5 cards each, deck = 104 - 4*5 = 84', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+
+    expect(game.players).toHaveLength(4)
+    game.players.forEach(p => expect(p.hand).toHaveLength(5))
+    // 2 decks for 4 players = 104 - 20 = 84
+    expect(game.deck).toHaveLength(84)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// handlePlay - successful plays
+// ---------------------------------------------------------------------------
+
+describe('handlePlay', () => {
+  describe('valid plays', () => {
+    test('play a single card successfully', () => {
+      const card = c(Suit.Spade, Rank.Seven)
+      // Deck must be non-empty so player doesn't finish (hand empty + deck empty → finished)
+      const game = makeGame({
+        deck: [c(Suit.Diamond, Rank.Five)],
+        players: [
+          { id: 'p1', hand: [card, c(Suit.Spade, Rank.Eight)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+        currentPlayerIndex: 0,
+      })
+
+      const result = handlePlay(game, 'p1', [card])
+
+      expect(result.success).toBe(true)
+      expect(game.currentBestPlay).toEqual({
+        type: HandType.Single,
+        cards: [card],
+        primaryRank: Rank.Seven,
+      })
+      expect(game.bestPlayerId).toBe('p1')
+      expect(game.tableCards).toHaveLength(1)
+      // Hand had 2 cards, played 1 → 1 remaining
+      expect(game.players[0].hand).toHaveLength(1)
+    })
+
+    test('play a pair successfully', () => {
+      const pair = [c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven)]
+      const game = makeGame({
+        deck: [c(Suit.Diamond, Rank.Five)],
+        players: [
+          { id: 'p1', hand: [...pair, c(Suit.Spade, Rank.Eight)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Club, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', pair)
+
+      expect(result.success).toBe(true)
+      expect(game.currentBestPlay!.type).toBe(HandType.Pair)
+      // Hand had 3 cards, played 2 → 1 remaining
+      expect(game.players[0].hand).toHaveLength(1)
+    })
+
+    test('play a bike (pair + single) successfully', () => {
+      const bike = [c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Four)]
+      const game = makeGame({
+        deck: [c(Suit.Diamond, Rank.Five)],
+        players: [
+          { id: 'p1', hand: [...bike, c(Suit.Spade, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Diamond, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', bike)
+
+      expect(result.success).toBe(true)
+      expect(game.currentBestPlay!.type).toBe(HandType.Bike)
+      // Hand had 4 cards, played 3 → 1 remaining
+      expect(game.players[0].hand).toHaveLength(1)
+    })
+
+    test('play a triple successfully', () => {
+      const triple = [c(Suit.Spade, Rank.Jack), c(Suit.Heart, Rank.Jack), c(Suit.Club, Rank.Jack)]
+      const game = makeGame({
+        deck: [c(Suit.Diamond, Rank.Five)],
+        players: [
+          { id: 'p1', hand: [...triple, c(Suit.Spade, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Diamond, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', triple)
+
+      expect(result.success).toBe(true)
+      expect(game.currentBestPlay!.type).toBe(HandType.Triple)
+      // Hand had 4 cards, played 3 → 1 remaining
+      expect(game.players[0].hand).toHaveLength(1)
+    })
+
+    test('play a root (two pairs + single) successfully', () => {
+      const root = [
+        c(Suit.Spade, Rank.King), c(Suit.Heart, Rank.King),
+        c(Suit.Club, Rank.Queen), c(Suit.Diamond, Rank.Queen),
+        c(Suit.Spade, Rank.Four),
+      ]
+      const game = makeGame({
+        deck: [c(Suit.Diamond, Rank.Five)],
+        players: [
+          { id: 'p1', hand: [...root, c(Suit.Spade, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Diamond, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', root)
+
+      expect(result.success).toBe(true)
+      expect(game.currentBestPlay!.type).toBe(HandType.Root)
+      // Hand had 6 cards, played 5 → 1 remaining
+      expect(game.players[0].hand).toHaveLength(1)
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // handlePlay - invalid plays
+  // -----------------------------------------------------------------------
+
+  describe('invalid plays', () => {
+    test('invalid card combination (4 cards) is rejected', () => {
+      const cards = [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Four), c(Suit.Club, Rank.Four), c(Suit.Diamond, Rank.Four)]
+      const game = makeGame({
+        players: [
+          { id: 'p1', hand: [...cards, c(Suit.Spade, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', cards)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Invalid card combination')
+    })
+
+    test('different hand type cannot beat current play', () => {
+      const game = makeGame({
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Jack)], primaryRank: Rank.Jack },
+        bestPlayerId: 'p1',
+        players: [
+          { id: 'p1', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [
+            c(Suit.Spade, Rank.Two), c(Suit.Heart, Rank.Two),
+          ], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p2', [c(Suit.Spade, Rank.Two), c(Suit.Heart, Rank.Two)])
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('出牌过小')
+    })
+
+    test('same hand type but lower rank cannot beat', () => {
+      // current: Single Rank.Seven(12), new play: Single Rank.Nine(11) — lower rank
+      const game = makeGame({
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Seven)], primaryRank: Rank.Seven },
+        bestPlayerId: 'p1',
+        players: [
+          { id: 'p1', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p2', [c(Suit.Heart, Rank.Nine)])
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('出牌过小')
+    })
+
+    test('player not found returns error', () => {
+      const game = makeGame()
+
+      const result = handlePlay(game, 'nonexistent', [c(Suit.Spade, Rank.Four)])
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Player not found')
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // handlePlay - first trick rule
+  // -----------------------------------------------------------------------
+
+  describe('first trick rule', () => {
+    test('first trick must include smallest card, succeeds when included', () => {
+      const smallest = c(Suit.Spade, Rank.Four)
+      const play = [smallest]
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        isFirstTrick: true,
+        players: [
+          { id: 'p1', hand: [smallest, c(Suit.Heart, Rank.Seven)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Club, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', play)
+
+      expect(result.success).toBe(true)
+      expect(game.isFirstTrick).toBe(false)
+    })
+
+    test('first trick without smallest card is rejected', () => {
+      const smallest = c(Suit.Spade, Rank.Four)
+      const bigger = c(Suit.Heart, Rank.Seven)
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        isFirstTrick: true,
+        players: [
+          { id: 'p1', hand: [smallest, bigger], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', [bigger])
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('First play must include your smallest card')
+    })
+
+    test('first trick check is skipped when currentBestPlay exists (not leading the trick)', () => {
+      // This happens when the lead player already played and another player is responding
+      const game = makeGame({
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Four)], primaryRank: Rank.Four },
+        bestPlayerId: 'p1',
+        isFirstTrick: true,
+        players: [
+          { id: 'p1', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      // p2 is NOT the lead player, so they don't need to include smallest card
+      const result = handlePlay(game, 'p2', [c(Suit.Heart, Rank.Seven)])
+
+      expect(result.success).toBe(true)
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // handlePlay - finished / round end / game over
+  // -----------------------------------------------------------------------
+
+  describe('finished detection', () => {
+    test('last card played + empty deck marks player as finished', () => {
+      const card = c(Suit.Spade, Rank.Seven)
+      const game = makeGame({
+        deck: [], // empty deck
+        players: [
+          { id: 'p1', hand: [card], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Two)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      handlePlay(game, 'p1', [card])
+
+      expect(game.players[0].finished).toBe(true)
+    })
+
+    test('last card played with non-empty deck does NOT mark finished', () => {
+      const card = c(Suit.Spade, Rank.Seven)
+      const game = makeGame({
+        deck: [c(Suit.Diamond, Rank.Five)], // deck still has cards
+        players: [
+          { id: 'p1', hand: [card], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Two)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      handlePlay(game, 'p1', [card])
+
+      expect(game.players[0].finished).toBe(false)
+    })
+  })
+
+  describe('round end detection', () => {
+    test('round ends when passCount >= activePlayers - 1', () => {
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        passCount: 2, // >= 3 - 1
+        tableCards: [
+          c(Suit.Spade, Rank.Five), c(Suit.Heart, Rank.Ten), c(Suit.Club, Rank.King),
+        ],
+        roundParticipants: new Set(['p1', 'p2']),
+        deck: [c(Suit.Diamond, Rank.Four), c(Suit.Diamond, Rank.Six)],
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Queen)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p3', hand: [c(Suit.Heart, Rank.Two)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p3', [c(Suit.Heart, Rank.Two)])
+
+      expect(result.success).toBe(true)
+      expect(result.roundWinner).toBe('p3')
+      // 5 + 10 + 10 = 25 score from table cards
+      expect(game.players[2].score).toBe(25)
+    })
+
+    test('round end: winner draws cards first, then other participants', () => {
+      // 2 players, deck has exactly 3 cards
+      // winner (p1) has 3 cards → draws 2; other (p2) has 3 cards → draws remaining 1
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        passCount: 1, // >= 1 (2 active - 1)
+        tableCards: [],
+        roundParticipants: new Set(['p2']),
+        deck: [c(Suit.Diamond, Rank.Four), c(Suit.Diamond, Rank.Six), c(Suit.Diamond, Rank.Eight)],
+        currentPlayerIndex: 0,
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Queen), c(Suit.Spade, Rank.King), c(Suit.Spade, Rank.Ace)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Queen), c(Suit.Heart, Rank.King), c(Suit.Heart, Rank.Ace)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      handlePlay(game, 'p1', [c(Suit.Spade, Rank.Queen)])
+
+      // p1 (winner) had 2 cards left → drew min(3,3) = 3 → 5 cards total
+      // p2 (participant) had 3 cards → drew min(2,0) = 0 → 3 cards total
+      // This proves winner drew first (if p2 drew first, p2 would have 5 and p1 would have 3)
+      expect(game.players[0].hand).toHaveLength(5)
+      expect(game.players[1].hand).toHaveLength(3)
+      expect(game.deck).toHaveLength(0)
+    })
+
+    test('game over when deck empty and someone finished', () => {
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        passCount: 1, // >= 1 (2 active - 1)
+        tableCards: [],
+        roundParticipants: new Set(['p2']),
+        deck: [],
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Seven)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [], score: 0, totalScore: 0, finished: true, hasBoxerBadge: false }, // already finished
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', [c(Suit.Spade, Rank.Seven)])
+
+      expect(result.success).toBe(true)
+      expect(result.gameOver).toBe(true)
+      expect(game.gameOver).toBe(true)
+      expect(game.phase).toBe(GamePhase.Settling)
+    })
+
+    test('game over when all players finished', () => {
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        passCount: 1, // >= 1
+        tableCards: [],
+        roundParticipants: new Set(['p1']),
+        deck: [c(Suit.Diamond, Rank.Five)], // non-empty but all finished
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Seven)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [], score: 0, totalScore: 0, finished: true, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePlay(game, 'p1', [c(Suit.Spade, Rank.Seven)])
+
+      expect(result.success).toBe(true)
+      expect(result.gameOver).toBe(true)
+    })
+
+    test('beating resets passCount (players who passed get new chance)', () => {
+      const game = makeGame({
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Four)], primaryRank: Rank.Four },
+        bestPlayerId: 'p1',
+        passCount: 5, // high value that should be reset
+        players: [
+          { id: 'p1', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Seven)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      handlePlay(game, 'p2', [c(Suit.Heart, Rank.Seven)])
+
+      // wasBeating = true (bestPlayerId was 'p1'), so passCount resets
+      expect(game.passCount).toBe(0)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// handlePass
+// ---------------------------------------------------------------------------
+
+describe('handlePass', () => {
+  test('cannot pass when table is empty (no bestPlayerId)', () => {
+    const game = makeGame({
+      currentBestPlay: null,
+      bestPlayerId: null,
+      players: [
+        { id: 'p1', hand: [c(Suit.Spade, Rank.Four)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'p2', hand: [c(Suit.Heart, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+      ],
+    })
+
+    const result = handlePass(game, 'p1')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('Must play when table is empty')
+  })
+
+  test('passCount increments correctly', () => {
+    // Need 3 players so passCount=1 < 2 (activePlayers-1), preventing immediate round end
+    const game = makeGame({
+      currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Jack)], primaryRank: Rank.Jack },
+      bestPlayerId: 'p1',
+      passCount: 0,
+      players: [
+        { id: 'p1', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'p2', hand: [c(Suit.Heart, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'p3', hand: [c(Suit.Club, Rank.Four)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+      ],
+    })
+
+    handlePass(game, 'p2')
+
+    expect(game.passCount).toBe(1)
+  })
+
+  describe('final round (deck empty) rules', () => {
+    test('deck empty + bestPlayer cannot pass (returns error)', () => {
+      const game = makeGame({
+        deck: [], // empty
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Jack)], primaryRank: Rank.Jack },
+        bestPlayerId: 'p1',
+        passCount: 0,
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Queen)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePass(game, 'p1')
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Must play in final round — cannot pass as current leader')
+    })
+
+    test('deck empty + no one finished → forcePlay (non-bestPlayer passes)', () => {
+      const game = makeGame({
+        deck: [],
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Jack)], primaryRank: Rank.Jack },
+        bestPlayerId: 'p1',
+        passCount: 1, // will become 2 after this pass, >= 2-1=1
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Ace)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePass(game, 'p2')
+
+      expect(result.success).toBe(true)
+      expect(result.forcePlay).toBe(true)
+      // currentBestPlay is cleared so bestPlayer can start a new trick
+      expect(game.currentBestPlay).toBeNull()
+      // passCount is reset to 0
+      expect(game.passCount).toBe(0)
+    })
+
+    test('deck empty + someone finished → round over with gameOver', () => {
+      const game = makeGame({
+        deck: [],
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Jack)], primaryRank: Rank.Jack },
+        bestPlayerId: 'p1',
+        passCount: 1, // will become 2 >= 2-1=1
+        tableCards: [c(Suit.Spade, Rank.Five)],
+        roundParticipants: new Set(['p1']),
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Ace)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [], score: 0, totalScore: 0, finished: true, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePass(game, 'p2')
+
+      // p2 is finished, but the active player count = 1 (only p1 is active)
+      // passCount becomes 2, >= 1-1=0, so round ends
+      // But wait - p2 is finished. activePlayers = game.players.filter(p => !p.finished).length = 1
+      // 2 >= 0 → true → round ends
+      expect(result.success).toBe(true)
+      expect(result.roundOver).toBe(true)
+      expect(result.gameOver).toBe(true)
+    })
+  })
+
+  describe('round end via pass', () => {
+    test('round ends when all other active players pass', () => {
+      const game = makeGame({
+        currentBestPlay: { type: HandType.Single, cards: [c(Suit.Spade, Rank.Seven)], primaryRank: Rank.Seven },
+        bestPlayerId: 'p1',
+        passCount: 1, // will become 2 >= 2 (active=3, 3-1=2)
+        tableCards: [c(Suit.Spade, Rank.Five), c(Suit.Spade, Rank.Ten)],
+        roundParticipants: new Set(['p1']),
+        deck: [c(Suit.Diamond, Rank.Ace), c(Suit.Diamond, Rank.Three)],
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Ace)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Heart, Rank.Nine)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p3', hand: [c(Suit.Club, Rank.Two)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      const result = handlePass(game, 'p3')
+
+      // passCount becomes 2, >= 2 (3-1), round ends
+      expect(result.success).toBe(true)
+      expect(result.roundOver).toBe(true)
+      expect(result.roundWinner).toBe('p1')
+      // 5 + 10 = 15 score
+      expect(game.players[0].score).toBe(15)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// settleGame
+// ---------------------------------------------------------------------------
+
+describe('settleGame', () => {
+  test('scores sorted descending by score', () => {
+    const game = makeGame({
+      players: [
+        { id: 'p1', hand: [], score: 30, totalScore: 100, finished: true, hasBoxerBadge: false },
+        { id: 'p2', hand: [], score: 50, totalScore: 200, finished: true, hasBoxerBadge: false },
+        { id: 'p3', hand: [], score: 10, totalScore: 50, finished: true, hasBoxerBadge: false },
+      ],
+    })
+
+    const result = settleGame(game)
+
+    expect(result.scores).toEqual([
+      { id: 'p2', totalScore: 50 },
+      { id: 'p1', totalScore: 30 },
+      { id: 'p3', totalScore: 10 },
+    ])
+  })
+
+  test('topTwo and bottomTwo are correctly identified', () => {
+    const game = makeGame({
+      players: [
+        { id: 'p1', hand: [], score: 100, totalScore: 0, finished: true, hasBoxerBadge: false },
+        { id: 'p2', hand: [], score: 80, totalScore: 0, finished: true, hasBoxerBadge: false },
+        { id: 'p3', hand: [], score: 20, totalScore: 0, finished: true, hasBoxerBadge: false },
+        { id: 'p4', hand: [], score: 10, totalScore: 0, finished: true, hasBoxerBadge: false },
+      ],
+    })
+
+    const result = settleGame(game)
+
+    expect(result.topTwo).toEqual(['p1', 'p2'])
+    // Sorted desc by score: p1(100) p2(80) p3(20) p4(10). slice(-2) = [p3, p4]
+    expect(result.bottomTwo).toEqual(['p3', 'p4'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getLargestSingle
+// ---------------------------------------------------------------------------
+
+describe('getLargestSingle', () => {
+  test('returns the highest-ranked card in hand', () => {
+    const hand = [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Nine)]
+
+    const result = getLargestSingle(hand)
+
+    // Seven(12) > Nine(11) > Four(0)
+    expect(result).toEqual(c(Suit.Heart, Rank.Seven))
+  })
+
+  test('returns null for empty hand', () => {
+    const result = getLargestSingle([])
+
+    expect(result).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// removeCardFromHand
+// ---------------------------------------------------------------------------
+
+describe('removeCardFromHand', () => {
+  test('removes matching card from hand', () => {
+    const hand = [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Nine)]
+    const card = c(Suit.Heart, Rank.Seven)
+
+    const result = removeCardFromHand(hand, card)
+
+    expect(result).toHaveLength(2)
+    expect(result).not.toContainEqual(card)
+    expect(result).toContainEqual(c(Suit.Spade, Rank.Four))
+    expect(result).toContainEqual(c(Suit.Club, Rank.Nine))
+  })
+
+  test('returns original array if card not found', () => {
+    const hand = [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Seven)]
+    const card = c(Suit.Diamond, Rank.Two)
+
+    const result = removeCardFromHand(hand, card)
+
+    expect(result).toHaveLength(2)
+    expect(result).toEqual(hand)
+  })
+
+  test('does not mutate original hand', () => {
+    const hand = [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Seven)]
+    const original = [...hand]
+    const card = c(Suit.Heart, Rank.Seven)
+
+    removeCardFromHand(hand, card)
+
+    expect(hand).toEqual(original)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// determineNextLead
+// ---------------------------------------------------------------------------
+
+describe('determineNextLead', () => {
+  test('returns player who surrendered the largest card', () => {
+    const surrendered = [
+      { playerId: 'loser1', card: c(Suit.Spade, Rank.Ace) },   // rank 7
+      { playerId: 'loser2', card: c(Suit.Heart, Rank.Seven) },  // rank 12 (highest)
+    ]
+
+    const result = determineNextLead(surrendered)
+
+    expect(result).toBe('loser2')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getBoxerScoreCards
+// ---------------------------------------------------------------------------
+
+describe('getBoxerScoreCards', () => {
+  test('filters score cards (5, 10, K) from deck', () => {
+    const game = makeGame({
+      deck: [
+        c(Suit.Spade, Rank.Five), c(Suit.Spade, Rank.Ten), c(Suit.Spade, Rank.King),
+        c(Suit.Heart, Rank.Four), c(Suit.Heart, Rank.Six),  // non-score cards
+      ],
+    })
+
+    const result = getBoxerScoreCards(game)
+
+    expect(result).toHaveLength(3)
+    expect(result.every(c => c.rank === Rank.Five || c.rank === Rank.Ten || c.rank === Rank.King)).toBe(true)
+  })
+
+  test('returns empty array when no score cards in deck', () => {
+    const game = makeGame({
+      deck: [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Six)],
+    })
+
+    const result = getBoxerScoreCards(game)
+
+    expect(result).toHaveLength(0)
+  })
+
+  test('collects score cards from unfinished players\' hands', () => {
+    const game = makeGame({
+      deck: [],
+      players: [
+        { id: 'p1', hand: [], score: 10, totalScore: 10, finished: true, hasBoxerBadge: false },
+        { id: 'p2', hand: [c(Suit.Spade, Rank.Five), c(Suit.Heart, Rank.Four)], score: 5, totalScore: 5, finished: false, hasBoxerBadge: false },
+        { id: 'p3', hand: [c(Suit.Diamond, Rank.King)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+      ],
+    })
+
+    const result = getBoxerScoreCards(game)
+
+    // P2 has Five(s) in hand, P3 has King(d) in hand. P1 finished so excluded.
+    expect(result).toHaveLength(2)
+    expect(result).toContainEqual(c(Suit.Spade, Rank.Five))
+    expect(result).toContainEqual(c(Suit.Diamond, Rank.King))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getBoxerParticipants
+// ---------------------------------------------------------------------------
+
+describe('getBoxerParticipants', () => {
+  test('returns all player IDs', () => {
+    const game = makeGame({
+      players: [
+        { id: 'p1', hand: [], score: 0, totalScore: 0, finished: true, hasBoxerBadge: false },
+        { id: 'p2', hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'p3', hand: [], score: 0, totalScore: 0, finished: true, hasBoxerBadge: false },
+      ],
+    })
+
+    const result = getBoxerParticipants(game)
+
+    expect(result).toEqual(['p1', 'p2', 'p3'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// executeSurrenderSwap
+// ---------------------------------------------------------------------------
+
+describe('executeSurrenderSwap', () => {
+  test('<4 players: 1v1 swap — loser gives largest card to winner, winner gives smallest back', () => {
+    const game = makeGame({
+      players: [
+        {
+          id: 'p1', // winner (highest score)
+          hand: [c(Suit.Spade, Rank.Four), c(Suit.Spade, Rank.Six), c(Suit.Spade, Rank.Eight)],
+          score: 100, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'p2', // loser (lowest score)
+          hand: [c(Suit.Heart, Rank.Ace), c(Suit.Heart, Rank.Two)], // Ace(7) > Two(9)? No, Two=9 > Ace=7
+          score: 20, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+      ],
+    })
+
+    const result = executeSurrenderSwap(game)
+
+    expect(result.swaps).toHaveLength(1)
+    expect(result.swaps[0].loserId).toBe('p2')
+    expect(result.swaps[0].winnerId).toBe('p1')
+    // Loser's largest card is Two(9) (rank higher than Ace(7))
+    expect(result.swaps[0].gaveUpCard.rank).toBe(Rank.Two)
+    // Winner gives smallest non-given card to loser
+    expect(result.swaps[0].receivedCard.rank).toBe(Rank.Four)
+    // Loser now has Ace(7) + Four(0) = 2 cards
+    expect(game.players[1].hand).toHaveLength(2)
+    // Winner now has Six(1), Eight(2), Two(9) = 3 cards
+    expect(game.players[0].hand).toHaveLength(3)
+  })
+
+  test('<4 players: loser with empty hand does not crash', () => {
+    const game = makeGame({
+      players: [
+        {
+          id: 'p1', // winner
+          hand: [c(Suit.Spade, Rank.Four)],
+          score: 100, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'p2', // loser with no cards
+          hand: [],
+          score: 20, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+      ],
+    })
+
+    const result = executeSurrenderSwap(game)
+
+    // Should be a no-op with empty swaps
+    expect(result.swaps).toHaveLength(0)
+    // nextLeadPlayerId should still be set (loser.id)
+    expect(result.nextLeadPlayerId).toBe('p2')
+  })
+
+  test('4+ players: top2 and bottom2 swap correctly', () => {
+    // 4 players: top 2 winners, bottom 2 losers
+    const game = makeGame({
+      players: [
+        {
+          id: 'w1', // 1st (highest score)
+          hand: [c(Suit.Spade, Rank.Four), c(Suit.Spade, Rank.Six)],
+          score: 100, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'w2', // 2nd
+          hand: [c(Suit.Heart, Rank.Four), c(Suit.Heart, Rank.Six)],
+          score: 80, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'l1', // 3rd (bottom 2)
+          hand: [c(Suit.Club, Rank.Queen), c(Suit.Club, Rank.Jack)],
+          score: 30, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'l2', // 4th (loser)
+          hand: [c(Suit.Diamond, Rank.Two), c(Suit.Diamond, Rank.Three)],
+          score: 10, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+      ],
+    })
+
+    const result = executeSurrenderSwap(game)
+
+    // Two swaps expected
+    expect(result.swaps).toHaveLength(2)
+    // l2 (4th) has Two(9) which is larger than l1's Queen(5)
+    // So l2 gives to w1 (1st), l1 gives to w2 (2nd)
+    expect(result.swaps[0].loserId).toBe('l2')
+    expect(result.swaps[0].winnerId).toBe('w1')
+    // nextLeadPlayerId is the player who surrendered the largest card
+    expect(result.nextLeadPlayerId).toBeDefined()
+  })
+
+  test('nextLeadPlayerId is set to the player who gave up the largest card', () => {
+    const game = makeGame({
+      players: [
+        {
+          id: 'w1', hand: [c(Suit.Spade, Rank.Four)],
+          score: 100, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'w2', hand: [c(Suit.Heart, Rank.Four)],
+          score: 80, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'l1', hand: [c(Suit.Club, Rank.Seven)], // rank 12 (largest)
+          score: 30, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+        {
+          id: 'l2', hand: [c(Suit.Diamond, Rank.Five)], // rank 10
+          score: 10, totalScore: 0, finished: false, hasBoxerBadge: false,
+        },
+      ],
+    })
+
+    const result = executeSurrenderSwap(game)
+
+    // l1 gave up Seven(12), l2 gave up Five(10) — l1 surrendered larger card → leads next
+    expect(result.nextLeadPlayerId).toBe('l1')
+  })
+})

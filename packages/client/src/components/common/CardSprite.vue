@@ -1,5 +1,5 @@
 <template>
-  <div class="card" :class="{ selected, dimmed }" @click="$emit('select')">
+  <div class="card" :class="[suitClass, { selected, dimmed }]" @click="$emit('select')">
     <span class="rank">{{ rankLabel }}</span>
     <span class="suit">{{ suitLabel }}</span>
   </div>
@@ -21,18 +21,29 @@ const rankLabels: Record<number, string> = {
 const suitLabels: Record<number, string> = {
   [Suit.Spade]: '♠', [Suit.Heart]: '♥', [Suit.Club]: '♣', [Suit.Diamond]: '♦',
 }
-const rankLabel = computed(() => rankLabels[props.card.rank])
-const suitLabel = computed(() => suitLabels[props.card.suit])
+const rankLabel = computed(() => rankLabels[props.card.rank] ?? '?')
+const suitLabel = computed(() => suitLabels[props.card.suit] ?? '?')
+const suitClass = computed(() => {
+  return props.card.suit === Suit.Heart || props.card.suit === Suit.Diamond ? 'suit-red' : 'suit-black'
+})
 </script>
 
 <style scoped>
 .card {
-  width: 48px; height: 68px; border: 2px solid #333; border-radius: 6px;
+  width: 46px; height: 66px; border: 2px solid #334155; border-radius: 6px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  background: white; cursor: pointer; user-select: none; transition: transform 0.1s; flex-shrink: 0;
+  background: linear-gradient(135deg, #f8fafc, #e2e8f0); cursor: pointer;
+  user-select: none; transition: all 0.12s; flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
-.card.selected { transform: translateY(-12px); border-color: #FFD700; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
-.card.dimmed { opacity: 0.5; cursor: not-allowed; }
-.rank { font-size: 1rem; font-weight: bold; }
-.suit { font-size: 0.9rem; }
+.card.suit-red { color: #dc2626; }
+.card.suit-black { color: #1e293b; }
+.card.selected {
+  transform: translateY(-14px);
+  border-color: #fbbf24;
+  box-shadow: 0 6px 16px rgba(251,191,36,0.35);
+}
+.card.dimmed { opacity: 0.45; cursor: not-allowed; }
+.rank { font-size: 0.95rem; font-weight: 800; line-height: 1; }
+.suit { font-size: 0.85rem; line-height: 1; }
 </style>
