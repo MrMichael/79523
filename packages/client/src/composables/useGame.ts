@@ -159,9 +159,10 @@ export function useGame() {
       if (playerId === store.myId) store.boxerPhase = 'eliminated'
     })
 
-    socket.value?.on('boxer_winner', ({ playerId, scoreCard, scores }: any) => {
+    socket.value?.on('boxer_winner', ({ playerId, scoreCard, points, scores }: any) => {
       store.boxerWinnerId = playerId
       store.boxerScoreCard = scoreCard
+      store.boxerWinPoints = points ?? 0
       if (scores) {
         const updated: Record<string, number> = {}
         for (const s of scores) updated[s.id] = s.score

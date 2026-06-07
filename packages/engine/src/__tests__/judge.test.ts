@@ -60,6 +60,13 @@ describe('identify', () => {
     expect(play!.type).toBe(HandType.Root)
     expect(play!.primaryRank).toBe(Rank.Ace)
   })
+  it('identifies quads + single (4+1) as Root', () => {
+    const cards = [c(Suit.Spade, Rank.King), c(Suit.Heart, Rank.King), c(Suit.Club, Rank.King), c(Suit.Diamond, Rank.King), c(Suit.Spade, Rank.Two)]
+    const play = identify(cards)
+    expect(play).not.toBeNull()
+    expect(play!.type).toBe(HandType.Root)
+    expect(play!.primaryRank).toBe(Rank.King)
+  })
 })
 
 describe('identify edge cases', () => {

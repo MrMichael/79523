@@ -66,7 +66,7 @@
         <p class="winner-msg">
           🏆 {{ store.boxerWinnerId === store.myId ? '你' : (playerNames[store.boxerWinnerId] || '玩家') }}
           赢得 {{ cardLabel(store.boxerScoreCard) }}
-          <span class="win-points">+{{ cardPoints(store.boxerScoreCard) }}分</span>！
+          <span class="win-points">+{{ store.boxerWinPoints || cardPoints(store.boxerScoreCard) }}分</span>！
         </p>
       </div>
     </div>

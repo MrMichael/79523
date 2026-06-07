@@ -67,8 +67,9 @@ function processBoxerRound(io: ReturnType<typeof Server>, roomCode: string, game
     const roomPlayer = room?.players.find(p => p.id === winnerId)
     if (roomPlayer) roomPlayer.boxerWins++
 
+    const winPoints = isScoreCard(card) ? calculateScore([card]) : 0
     io.to(roomCode).emit('boxer_winner', {
-      playerId: winnerId, scoreCard: card,
+      playerId: winnerId, scoreCard: card, points: winPoints,
       scores: game.players.map(p => ({ id: p.id, score: p.score })),
     })
 

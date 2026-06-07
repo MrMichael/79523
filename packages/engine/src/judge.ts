@@ -59,6 +59,10 @@ export function identify(cards: Card[]): Play | null {
     if (groupSizes.length === 2 && groupSizes[0].count === 3 && groupSizes[1].count === 2) {
       return { type: HandType.Root, cards: [...cards], primaryRank: groupSizes[0].rank, secondaryRank: groupSizes[1].rank }
     }
+    // Quads + single (4+1 → Root)
+    if (groupSizes.length === 2 && groupSizes[0].count === 4 && groupSizes[1].count === 1) {
+      return { type: HandType.Root, cards: [...cards], primaryRank: groupSizes[0].rank, secondaryRank: groupSizes[1].rank }
+    }
     return null
   }
 
