@@ -100,21 +100,24 @@ function finishBoxerFlow(io: ReturnType<typeof Server>, roomCode: string, game: 
   game.boxerState = null
 
   const sorted = [...game.players].sort((a, b) => b.score - a.score)
-
-  // Emit final scores (post-boxer) so GameOverOverlay updates
-  io.to(roomCode).emit('scores_updated', {
-    scores: sorted.map(p => ({ id: p.id, totalScore: p.score })),
-  })
+  const pc = game.players.length
 
   // Save surrender info for after next game's cards are dealt
-  const pc = game.players.length
   room.pendingSurrender = {
     winnerIds: pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id),
     loserIds: pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id),
   }
 
-  // Emit next_game_lead so clients navigate to room
-  io.to(roomCode).emit('next_game_lead', { playerId: '' })
+  // Timing: boxer end → 2s → settlement → 3s → leaderboard
+  setTimeout(() => {
+    io.to(roomCode).emit('scores_updated', {
+      scores: sorted.map(p => ({ id: p.id, totalScore: p.score })),
+    })
+
+    setTimeout(() => {
+      io.to(roomCode).emit('next_game_lead', { playerId: '' })
+    }, 3000)
+  }, 2000)
 }
 
 // ── Helper: emit game_started + your_turn ──

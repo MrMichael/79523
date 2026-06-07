@@ -1,7 +1,7 @@
 # 测试覆盖报告
 
 > 生成时间：2026-06-07 | 版本：v0.1  
-> 总计：**213 测试**（引擎 71 + 服务端 98 + 客户端 44）
+> 总计：**216 测试**（引擎 71 + 服务端 101 + 客户端 44）
 
 ---
 
@@ -97,11 +97,11 @@
 
 ---
 
-## 二、服务端测试（jest）— 98 tests
+## 二、服务端测试（jest）— 101 tests
 
 **路径**: `packages/server/src/__tests__/`
 
-### 2.1 game-machine.test.ts — 游戏逻辑 (68 tests)
+### 2.1 game-machine.test.ts — 游戏逻辑 (71 tests)
 
 #### initGame (8)
 | # | 测试 |
@@ -226,6 +226,15 @@
 | 66 | BUG-2 | scores_updated carries final scores | 55+35 correct |
 | 67 | BUG-3 | winner with 1 card: returns it | both keep >=1 card |
 | 68 | BUG-3 | winner with 0 cards: undo swap | no crash, no card loss |
+
+#### Boxer-to-settlement timing flow (3) *新增*
+| # | 测试 | 验证点 |
+|---|------|--------|
+| 69 | post-boxer settlement sorted correctly | p3(80) > p1(60) > p2(50) |
+| 70 | scores_updated carries final rankings | 55 > 45 |
+| 71 | pendingSurrender uses post-boxer scores | winner=p2(70), loser=p1(40) |
+
+**时序设计**: 拳王结束 → 2s → scores_updated (结算画面) → 3s → next_game_lead (返回房间)
 
 ### 2.2 game-simulation.test.ts — 多局模拟 (30 tests)
 

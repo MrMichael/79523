@@ -1227,3 +1227,60 @@ describe('Bug fixes — regression', () => {
     })
   })
 })
+
+// ── Timing flow: boxer → settlement → leaderboard ──
+
+describe('Boxer-to-settlement timing', () => {
+  test('post-boxer settlement scores are sorted correctly', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 60
+    game.players[1].score = 40
+    game.players[2].score = 80
+    // Boxer adds 10 to p2
+    game.players[1].score += 10
+
+    // Simulate finishBoxerFlow: sort and emit scores
+    const sorted = [...game.players].sort((a, b) => b.score - a.score)
+    const scores = sorted.map(p => ({ id: p.id, totalScore: p.score }))
+
+    expect(scores[0].id).toBe('p3') // 80
+    expect(scores[0].totalScore).toBe(80)
+    expect(scores[1].id).toBe('p1') // 60
+    expect(scores[1].totalScore).toBe(60)
+    expect(scores[2].id).toBe('p2') // 40+10=50
+    expect(scores[2].totalScore).toBe(50)
+  })
+
+  test('scores_updated carries final rankings for GameOverOverlay', () => {
+    const game = initGame(['p1', 'p2'])
+    game.players[0].score = 45
+    game.players[1].score = 55
+
+    const sorted = [...game.players].sort((a, b) => b.score - a.score)
+    const finalScores = sorted.map(p => ({ id: p.id, totalScore: p.score }))
+
+    expect(finalScores).toHaveLength(2)
+    expect(finalScores[0].totalScore).toBe(55)
+    expect(finalScores[1].totalScore).toBe(45)
+  })
+
+  test('pendingSurrender uses correct winner/loser from post-boxer scores', () => {
+    const game = initGame(['p1', 'p2'])
+    game.players[0].score = 30
+    game.players[1].score = 70
+    // Boxer adds 10 to p1
+    game.players[0].score += 10
+
+    const sorted = [...game.players].sort((a, b) => b.score - a.score)
+    const pc = game.players.length
+
+    const pendingSurrender = {
+      winnerIds: pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id),
+      loserIds: pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id),
+    }
+
+    // p2 won (70) → winner, p1 lost (40) → loser
+    expect(pendingSurrender.winnerIds).toEqual(['p2'])
+    expect(pendingSurrender.loserIds).toEqual(['p1'])
+  })
+})

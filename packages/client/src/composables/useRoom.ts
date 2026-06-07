@@ -67,16 +67,13 @@ export function useRoom() {
     socket.value?.on('next_game_lead', () => {
       rlog('next_game_lead')
       amReady.value = false
-      // Delay navigation so GameOverOverlay is visible
+      router.push(`/room/${roomCode.value}`)
+      // Auto-trigger new game setup — host resets room, others just see leaderboard
       setTimeout(() => {
-        router.push(`/room/${roomCode.value}`)
-        // Auto-trigger new game setup — host resets room, others just see leaderboard
-        setTimeout(() => {
-          if (players.value.some(p => p.id === myId.value && p.isHost)) {
-            socket.value?.emit('start_new_game')
-          }
-        }, 500)
-      }, 5000)
+        if (players.value.some(p => p.id === myId.value && p.isHost)) {
+          socket.value?.emit('start_new_game')
+        }
+      }, 500)
     })
     socket.value?.on('error', ({ message }) => {
       console.error(message)
