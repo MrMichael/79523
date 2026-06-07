@@ -1330,3 +1330,93 @@ describe('Boxer-to-settlement timing', () => {
     expect(pendingSurrender.loserIds).toEqual(['p1'])
   })
 })
+
+// ── End-to-end surrender card count verification ──
+
+describe('Surrender card count integrity', () => {
+  test('executeSurrenderSwap: all players keep 5 cards (2p)', () => {
+    const game = initGame(['p1', 'p2'])
+    game.players[0].score = 60 // winner
+    game.players[1].score = 20 // loser
+    const before = game.players.map(p => p.hand.length)
+    executeSurrenderSwap(game)
+    const after = game.players.map(p => p.hand.length)
+    expect(after).toEqual(before) // all keep 5
+  })
+
+  test('executeSurrenderSwap: all players keep 5 cards (3p)', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 80
+    game.players[1].score = 50
+    game.players[2].score = 20
+    const before = game.players.map(p => p.hand.length)
+    executeSurrenderSwap(game)
+    const after = game.players.map(p => p.hand.length)
+    expect(after).toEqual(before)
+  })
+
+  test('executeSurrenderSwap: all players keep 5 cards (4p, 2 decks)', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 80
+    game.players[1].score = 60
+    game.players[2].score = 30
+    game.players[3].score = 10
+    const before = game.players.map(p => p.hand.length)
+    executeSurrenderSwap(game)
+    const after = game.players.map(p => p.hand.length)
+    expect(after).toEqual(before)
+  })
+
+  test('processSurrender flow: card count preserved through full manual flow', () => {
+    // Simulate the exact ws.ts manual surrender flow
+    const game = initGame(['p1', 'p2'])
+    game.players[0].score = 60 // winner p1
+    game.players[1].score = 20 // loser p2
+    const before = game.players.map(p => p.hand.length)
+
+    // Step 1: loser gives largest card
+    const loserCard = getLargestSingle(game.players[1].hand)
+    expect(loserCard).toBeTruthy()
+    game.players[1].hand = removeCardFromHand(game.players[1].hand, loserCard!)
+    // Step 2: winner picks
+    game.players[0].hand.push(loserCard!)
+    // Step 3: winner returns smallest (different from received)
+    const winnerCard = getSmallestCard(
+      game.players[0].hand.filter(c => c.rank !== loserCard!.rank || c.suit !== loserCard!.suit)
+    )
+    expect(winnerCard).toBeTruthy()
+    game.players[0].hand = removeCardFromHand(game.players[0].hand, winnerCard!)
+    game.players[1].hand.push(winnerCard!)
+
+    const after = game.players.map(p => p.hand.length)
+    expect(after).toEqual(before)
+  })
+
+  test('processSurrender flow with duplicates (2-deck): card count preserved', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 80
+    game.players[1].score = 60
+    game.players[2].score = 30
+    game.players[3].score = 10
+    const before = game.players.map(p => p.hand.length)
+
+    // Simulate manual flow for bottom loser
+    const loser = game.players[3]
+    const winner = game.players[0]
+    const loserCard = getLargestSingle(loser.hand)
+    if (loserCard) {
+      loser.hand = removeCardFromHand(loser.hand, loserCard)
+      winner.hand.push(loserCard)
+      const winnerCard = getSmallestCard(
+        winner.hand.filter(c => c.rank !== loserCard.rank || c.suit !== loserCard.suit)
+      )
+      if (winnerCard) {
+        winner.hand = removeCardFromHand(winner.hand, winnerCard)
+        loser.hand.push(winnerCard)
+      }
+    }
+
+    const after = game.players.map(p => p.hand.length)
+    expect(after).toEqual(before)
+  })
+})

@@ -88,20 +88,30 @@ function toggleCard(card: Card) {
 
 function submitGive() {
   if (selectedCards.value.length !== 1) return
-  socket.value?.emit('surrender_give', { card: selectedCards.value[0] })
+  const card = selectedCards.value[0]
+  socket.value?.emit('surrender_give', { card })
+  myHand.value = myHand.value.filter(c => c.suit !== card.suit || c.rank !== card.rank)
   selectedCards.value = []
+  info.value = '已上缴'
 }
 
 function submitPick() {
   if (selectedCards.value.length !== 1) return
-  socket.value?.emit('surrender_pick', { card: selectedCards.value[0] })
+  const card = selectedCards.value[0]
+  socket.value?.emit('surrender_pick', { card })
+  myHand.value.push(card)
   selectedCards.value = []
+  info.value = '已挑选'
 }
 
 function submitReturn() {
   if (selectedCards.value.length !== 1) return
-  socket.value?.emit('surrender_return', { card: selectedCards.value[0] })
+  const card = selectedCards.value[0]
+  socket.value?.emit('surrender_return', { card })
+  // Remove card from displayed hand immediately
+  myHand.value = myHand.value.filter(c => c.suit !== card.suit || c.rank !== card.rank)
   selectedCards.value = []
+  info.value = `已返还一张牌给对手`
 }
 
 onMounted(() => {
@@ -124,14 +134,23 @@ onMounted(() => {
     }
   })
 
-  socket.value?.on('next_game_lead', () => {
-    // Clean up when surrender flow completes
+  function cleanupSurrender() {
+    // Do NOT sync hand — server sends draw_card/your_turn with correct hand immediately
     active.value = false
     phase.value = ''
     myRole.value = 'spectator'
     myHand.value = []
     surrenderedCardsForPick.value = []
     selectedCards.value = []
+  }
+
+  socket.value?.on('next_game_lead', () => {
+    cleanupSurrender()
+  })
+
+  socket.value?.on('surrender_swap', () => {
+    // Inter-game surrender completed, hide overlay
+    setTimeout(() => cleanupSurrender(), 1500)
   })
 })
 </script>
