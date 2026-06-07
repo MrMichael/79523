@@ -224,6 +224,11 @@ function resetSurrenderTimer(io: ReturnType<typeof Server>, roomCode: string, ga
         losers: swaps.map((s: any) => ({ id: s.loserId, gaveUpCard: s.gaveUpCard, receivedCard: s.receivedCard })),
       })
     }
+    // Sync all players' hands after auto-complete swap
+    for (const gp of game.players) {
+      const rp = room.players.find(p => p.id === gp.id)
+      if (rp) io.to(rp.socketId).emit('draw_card', { hand: gp.hand, deckCount: game.deck.length })
+    }
     const leadGp = game.players[game.currentPlayerIndex]
     const leadPlayer = room.players.find(p => p.id === leadGp.id)
     if (leadPlayer) {
@@ -429,6 +434,12 @@ function processSurrenderReturn(io: ReturnType<typeof Server>, roomCode: string,
       io.to(roomCode).emit('surrender_swap', {
         losers: ss.swaps.map(s => ({ id: s.loserId, gaveUpCard: s.gaveUpCard, receivedCard: s.receivedCard })),
       })
+    }
+    // Sync all players' hands after surrender swap
+    for (const gp of game.players) {
+      const rp = room.players.find(p => p.id === gp.id)
+      if (!rp) continue
+      io.to(rp.socketId).emit('draw_card', { hand: gp.hand, deckCount: game.deck.length })
     }
     const leadGp = game.players[game.currentPlayerIndex]
     const leadSocket = room.players[game.currentPlayerIndex]
