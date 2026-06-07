@@ -63,8 +63,9 @@
       <!-- Winner announcement -->
       <div v-if="store.boxerWinnerId && store.boxerScoreCard" class="winner-area">
         <p class="winner-msg">
-          🏆 {{ store.boxerWinnerId === store.myId ? '你' : (playerNames[store.boxerWinnerId] || '玩家') }} 获得
-          {{ cardLabel(store.boxerScoreCard) }}！
+          🏆 {{ store.boxerWinnerId === store.myId ? '你' : (playerNames[store.boxerWinnerId] || '玩家') }}
+          赢得 {{ cardLabel(store.boxerScoreCard) }}
+          <span class="win-points">+{{ cardPoints(store.boxerScoreCard) }}分</span>！
         </p>
       </div>
     </div>
@@ -154,7 +155,7 @@ onUnmounted(() => {
 
 <style scoped>
 .boxer-overlay {
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; inset: 0; z-index: 250;
   background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center;
   backdrop-filter: blur(4px);
 }
@@ -228,6 +229,11 @@ onUnmounted(() => {
 .eliminated-msg { font-size: 1.2rem; color: #f44336; font-weight: 700; }
 .eliminated-sub { font-size: 0.85rem; color: #888; }
 
-.winner-area { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #444; }
+.winner-area {
+  margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #444;
+  animation: winPop 0.3s ease-out;
+}
+@keyframes winPop { from { transform: scale(0.8); opacity: 0; } }
 .winner-msg { font-size: 1.1rem; color: #ffd740; font-weight: 700; }
+.win-points { color: #22c55e; font-size: 1.3rem; font-weight: 800; }
 </style>
