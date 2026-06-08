@@ -83,5 +83,13 @@ export function useRoom() {
     })
   }
 
-  return { roomCode, players, amReady, myId, createRoom, joinRoom, ready, startNewGame, setupListeners }
+  function resetRoom() {
+    roomCode.value = ''
+    players.value = []
+    amReady.value = false
+    myId.value = ''
+    listenersSetup = false
+  }
+
+  return { roomCode, players, amReady, myId, createRoom, joinRoom, ready, startNewGame, setupListeners, resetRoom }
 }

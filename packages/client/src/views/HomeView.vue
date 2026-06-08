@@ -14,8 +14,19 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
+import { useSocket } from '@/composables/useSocket'
+import { useRoom } from '@/composables/useRoom'
 import CreateRoom from '@/components/room/CreateRoom.vue'
 import JoinRoom from '@/components/room/JoinRoom.vue'
+
+const { disconnect } = useSocket()
+const { resetRoom } = useRoom()
+
+onMounted(() => {
+  resetRoom()
+  disconnect()
+})
 </script>
 
 <style scoped>
