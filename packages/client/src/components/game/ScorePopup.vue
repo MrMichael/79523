@@ -1,7 +1,7 @@
 <template>
   <div class="score-popup">
-    <button class="toggle-btn" @click="show = !show" :title="show ? '收起积分榜' : '查看积分榜'">
-      📊{{ show ? '收起' : '积分榜' }}
+    <button class="toggle-btn" @click="show = !show" :title="show ? '收起排名榜' : '查看排名榜'">
+      📊{{ show ? '收起' : '排名榜' }}
     </button>
     <Transition name="slide">
       <div v-if="show" class="popup-panel">
