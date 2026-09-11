@@ -93,6 +93,11 @@ CREATE TABLE users (
 - 删除 `ready` 与房主专属 `start_new_game` 的旧语义。
 - 新增 `start_game`（任意已鉴权且在该房间的玩家）：校验 `players.length >= 2 && room.game == null` → 开局（含 `pendingSurrender` 流程）→ 否则回 `error`。
 
+**房间生命周期（避免僵尸房）**：当房间内**不再有真人玩家**时**自动解散**。
+- 含 AI 的房间即使只剩 AI 也视为空房，一并移除解散。
+- 真人玩家**断线后 30s 踢出**（沿用现有机制）触发判定；一旦最后一名真人离开即解散。
+- 不再需要基于时间的"空房 10min 清理"（旧 `cleanupStaleRooms` 可移除）。
+
 ## 9. 大厅（需求 2）
 
 登录后进入 `/lobby`，顶部标签：**大厅 / 全局排名 / 管理（仅 admin 可见）**。
