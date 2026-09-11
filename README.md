@@ -39,7 +39,7 @@ packages/
 npx pnpm dev           # 同时启动前后端
 npx pnpm dev:server    # 仅服务端 :3000
 npx pnpm dev:client    # 仅前端 :5173
-npx pnpm test          # 引擎 + 服务端测试
+npx pnpm test          # 引擎 + 服务端 + 前端测试
 npx pnpm test:engine   # 引擎测试 (vitest)
 npx pnpm test:server   # 服务端测试 (jest)
 npx pnpm test:client   # 前端测试 (vitest)
@@ -105,8 +105,8 @@ sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 
 | 层 | 工具 | 测试数 |
 |---|------|--------|
-| 引擎 | vitest | 74 |
-| 服务端 | jest | 109 |
-| 客户端 | vitest | 44 |
+| 引擎 | vitest | 75 |
+| 服务端 | jest | 231 |
+| 客户端 | vitest | 42 |
 | E2E | playwright | 1 |
-| **总计** | | **228** |
+| **总计** | | **349** |

@@ -13,7 +13,7 @@ test.describe('Game E2E Smoke', () => {
 
     // ── P1: 创建房间 ──
     await p1.goto(CLIENT)
-    await expect(p1.locator('h1')).toHaveText('79523')
+    await expect(p1.locator('h1')).toHaveText('烟三文四')
     await p1.fill('input[placeholder="输入昵称"]', 'T1')
     await p1.click('button:has-text("2人")')
     await p1.click('button:has-text("创建房间")')

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { createRoom, getAllRooms } from './room'
 
-const router = Router()
+const router: Router = Router()
 
 router.get('/rooms', (_req, res) => {
   const rooms = getAllRooms().map(r => ({ code: r.code, playerCount: r.players.length, maxPlayers: r.maxPlayers, inGame: r.game !== null }))

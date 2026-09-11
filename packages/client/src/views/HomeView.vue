@@ -17,6 +17,7 @@
 import { onMounted } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useRoom } from '@/composables/useRoom'
+import { resetGame } from '@/composables/useGame'
 import CreateRoom from '@/components/room/CreateRoom.vue'
 import JoinRoom from '@/components/room/JoinRoom.vue'
 
@@ -25,6 +26,7 @@ const { resetRoom } = useRoom()
 
 onMounted(() => {
   resetRoom()
+  resetGame()
   disconnect()
 })
 </script>

@@ -27,8 +27,18 @@ function stopCountdown() {
 }
 
 // Module-level shared state — survives route changes, shared across all useGame() calls
-const players = ref<{ id: string; name: string; cardCount: number; score: number }[]>([])
+const players = ref<{ id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number }[]>([])
 const playerNames = ref<Record<string, string>>({})
+
+/** Reset shared game state + listener guard when leaving the game (e.g. returning home).
+ *  Without this, a fresh socket after reconnect would never get the game event handlers re-registered. */
+export function resetGame() {
+  listenersSetup = false
+  stopCountdown()
+  players.value = []
+  playerNames.value = {}
+  useGameStore().reset()
+}
 
 export function useGame() {
   const { socket } = useSocket()
@@ -62,6 +72,8 @@ export function useGame() {
         name: names[p.id] || '?',
         cardCount: p.cardCount ?? p.hand?.length ?? 0,
         score: p.score,
+        wins: p.wins || 0,
+        boxerWins: p.boxerWins || 0,
       }))
     })
 
@@ -204,6 +216,14 @@ export function useGame() {
       store.finalRankings = scores
     })
 
+    socket.value?.on('room_stats_updated', ({ stats }: any) => {
+      if (!stats) return
+      for (const s of stats) {
+        const p = players.value.find(pl => pl.id === s.id)
+        if (p) { p.wins = s.wins; p.boxerWins = s.boxerWins }
+      }
+    })
+
     socket.value?.on('next_game_lead', () => {
       clog('next_game_lead')
       store.boxerPhase = 'idle'
@@ -214,7 +234,7 @@ export function useGame() {
       store.boxerWinnerId = ''
     })
 
-    socket.value?.on('full_state', ({ myHand: hand, deck, players: gamePlayers, currentPlayerIndex, myId }: any) => {
+    socket.value?.on('full_state', ({ myHand: hand, deck, players: gamePlayers, currentPlayerIndex, myId, roomPlayerStats }: any) => {
       store.myHand = hand
       store.myId = myId
       store.deckCount = deck?.length || 0
@@ -226,6 +246,8 @@ export function useGame() {
           name: playerNames.value[p.id] || '?',
           cardCount: p.hand?.length || 0,
           score: p.score,
+          wins: roomPlayerStats?.[p.id]?.wins || p.wins || 0,
+          boxerWins: roomPlayerStats?.[p.id]?.boxerWins || p.boxerWins || 0,
         }))
       }
       if (gamePlayers && currentPlayerIndex !== undefined) {

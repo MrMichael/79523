@@ -26,7 +26,7 @@ function autoPlay(hand: Card[], currentBestPlay: ReturnType<typeof identify>, is
   }
 
   // Try pairs
-  for (let rank = Rank.Two; rank <= Rank.Ace; rank++) {
+  for (let rank = Rank.Four; rank <= Rank.Seven; rank++) {
     const pair = hand.filter(c => c.rank === rank)
     if (pair.length >= 2) {
       const play = identify(pair.slice(0, 2))
@@ -35,7 +35,7 @@ function autoPlay(hand: Card[], currentBestPlay: ReturnType<typeof identify>, is
   }
 
   // Try triples
-  for (let rank = Rank.Two; rank <= Rank.Ace; rank++) {
+  for (let rank = Rank.Four; rank <= Rank.Seven; rank++) {
     const triple = hand.filter(c => c.rank === rank)
     if (triple.length >= 3) {
       const play = identify(triple.slice(0, 3))
@@ -44,7 +44,7 @@ function autoPlay(hand: Card[], currentBestPlay: ReturnType<typeof identify>, is
   }
 
   // Try bombs
-  for (let rank = Rank.Two; rank <= Rank.Ace; rank++) {
+  for (let rank = Rank.Four; rank <= Rank.Seven; rank++) {
     const quad = hand.filter(c => c.rank === rank)
     if (quad.length >= 4) {
       const play = identify(quad.slice(0, 4))
@@ -85,8 +85,8 @@ interface GameResult {
   expectedTotal?: number
 }
 
-function simulateOneGame(playerIds: string[], leadPlayerId?: string): GameResult {
-  const game = initGame(playerIds, leadPlayerId)
+function simulateOneGame(playerIds: string[], leadPlayerId?: string, isFirstGame = true): GameResult {
+  const game = initGame(playerIds, leadPlayerId, isFirstGame)
   let rounds = 0
 
   for (let safety = 0; safety < 10000 && !game.gameOver; safety++) {
@@ -207,7 +207,7 @@ function simulateSession(playerCount: number, gameCount: number): SessionResult 
   let gamesCompleted = 0
 
   for (let g = 0; g < gameCount; g++) {
-    const result = simulateOneGame(ids, nextLeadId)
+    const result = simulateOneGame(ids, nextLeadId, g === 0)
     if (!result.success) {
       errors.push(`Game ${g + 1}: ${result.error}`)
       break
@@ -347,7 +347,7 @@ describe('Multi-Game Session Simulation (拳王 + 积分榜 + 交粮)', () => {
         let leadId: string | undefined
 
         for (let g = 1; g <= GAMES_PER_SESSION; g++) {
-          const result = simulateOneGame(ids, leadId)
+          const result = simulateOneGame(ids, leadId, g === 1)
 
           expect(result.success).toBe(true)
           expect(result.rounds).toBeGreaterThan(0)

@@ -5,9 +5,10 @@
     "dev": "pnpm --filter @79523/server dev & pnpm --filter @79523/client dev",
     "dev:server": "pnpm --filter @79523/server dev",
     "dev:client": "pnpm --filter @79523/client dev",
-    "test": "pnpm --filter @79523/engine test && pnpm --filter @79523/server test",
+    "test": "pnpm --filter @79523/engine test && pnpm --filter @79523/server test && pnpm --filter @79523/client test",
     "test:engine": "pnpm --filter @79523/engine test",
-    "test:server": "pnpm --filter @79523/server test"
+    "test:server": "pnpm --filter @79523/server test",
+    "test:client": "pnpm --filter @79523/client test"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

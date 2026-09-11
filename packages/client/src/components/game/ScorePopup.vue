@@ -5,13 +5,13 @@
     </button>
     <Transition name="slide">
       <div v-if="show" class="popup-panel">
-        <h4>{{ playerNames[store.myId] || '我' }} · 本局 {{ myScore }}分 · 手牌 {{ myCards }}张</h4>
+        <h4>房间排名 · {{ statsHint }}</h4>
         <div class="popup-list">
           <div v-for="(p, i) in rankedPlayers" :key="p.id" class="popup-row">
             <span class="popup-rank">{{ rankChar(i) }}</span>
             <span class="popup-name">{{ playerNames[p.id] || p.id.slice(0,4) }}</span>
-            <span class="popup-cards">{{ p.cardCount }}张</span>
-            <span class="popup-score">{{ p.score }}分</span>
+            <span class="popup-stat">拳王 {{ p.boxerWins }}</span>
+            <span class="popup-stat wins">胜局 {{ p.wins }}</span>
           </div>
         </div>
       </div>
@@ -26,14 +26,16 @@ import { useGameStore } from '@/stores/game'
 const store = useGameStore()
 const show = ref(false)
 
-const props = defineProps<{ scores: Record<string, number>; playerNames: Record<string, string>; players: { id: string; name: string; cardCount: number; score: number }[] }>()
+const props = defineProps<{ scores: Record<string, number>; playerNames: Record<string, string>; players: { id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number }[] }>()
 
 const rankedPlayers = computed(() =>
-  [...props.players].sort((a, b) => b.score - a.score)
+  [...props.players].sort((a, b) => b.wins - a.wins || b.boxerWins - a.boxerWins)
 )
 
-const myScore = computed(() => props.scores[store.myId] || 0)
-const myCards = computed(() => store.myHand.length)
+const statsHint = computed(() => {
+  const totalWins = rankedPlayers.value.reduce((s, p) => s + p.wins, 0)
+  return totalWins > 0 ? `累计 ${totalWins} 胜局` : '暂无战绩'
+})
 
 function rankChar(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}` }
 </script>
@@ -61,8 +63,8 @@ function rankChar(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i ==
 .popup-row { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; }
 .popup-rank { width: 20px; font-size: 0.85rem; }
 .popup-name { flex: 1; color: #e2e8f0; font-weight: 500; }
-.popup-cards { color: #64748b; font-size: 0.75rem; width: 30px; text-align: right; }
-.popup-score { color: #fbbf24; font-weight: 600; width: 38px; text-align: right; }
+.popup-stat { color: #64748b; font-size: 0.75rem; }
+.popup-stat.wins { color: #fbbf24; font-weight: 600; }
 
 .slide-enter-active { transition: all 0.2s ease-out; }
 .slide-leave-active { transition: all 0.15s ease-in; }

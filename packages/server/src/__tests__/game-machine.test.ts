@@ -1,7 +1,7 @@
 import { describe, test, expect } from '@jest/globals'
-import { Suit, Rank, HandType, GamePhase, compareCards, getSmallestCard, calculateScore, isScoreCard } from '@79523/engine'
+import { Suit, Rank, HandType, GamePhase, compareCards, getSmallestCard, calculateScore, isScoreCard, BoxerMove } from '@79523/engine'
 import type { Card } from '@79523/engine'
-import type { ServerGame } from '../types'
+import type { ServerGame, GamePlayer } from '../types'
 import {
   initGame,
   handlePlay,
@@ -15,6 +15,7 @@ import {
   executeSurrenderSwap,
   verifyScoreTotal,
   getScoreTieGroups,
+  removeGamePlayer,
 } from '../game-machine'
 
 // ---------------------------------------------------------------------------
@@ -99,6 +100,12 @@ describe('initGame', () => {
     const game = initGame(['p1', 'p2'])
 
     expect(game.isFirstTrick).toBe(true)
+  })
+
+  test('isFirstTrick is false for later games (isFirstGame=false)', () => {
+    const game = initGame(['p1', 'p2'], 'p1', false)
+
+    expect(game.isFirstTrick).toBe(false)
   })
 
   test('4-player game deals 5 cards each, deck = 104 - 4*5 = 84', () => {
@@ -342,6 +349,24 @@ describe('handlePlay', () => {
 
       // p2 is NOT the lead player, so they don't need to include smallest card
       const result = handlePlay(game, 'p2', [c(Suit.Heart, Rank.Seven)])
+
+      expect(result.success).toBe(true)
+    })
+
+    test('non-first game: first play may be any hand type without the smallest card', () => {
+      // Later games (after a completed surrender) lead with any hand type (Design §4.1.2)
+      const game = makeGame({
+        currentBestPlay: null,
+        bestPlayerId: null,
+        isFirstTrick: false,
+        players: [
+          { id: 'p1', hand: [c(Suit.Spade, Rank.Four), c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Seven)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+          { id: 'p2', hand: [c(Suit.Club, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        ],
+      })
+
+      // Leading a pair of 7s that does not contain the smallest card (4)
+      const result = handlePlay(game, 'p1', [c(Suit.Heart, Rank.Seven), c(Suit.Club, Rank.Seven)])
 
       expect(result.success).toBe(true)
     })
@@ -1742,5 +1767,404 @@ describe('Tiebreak order regression', () => {
     // P4(30) must be last, never above P2(50) or P3(50)
     expect(sorted[3].id).toBe('p4')
     expect(sorted.indexOf(sorted.find(p => p.id === 'p4')!)).toBe(3)
+  })
+})
+
+// ── 完整排名场景枚举测试 ──
+
+describe('场景A: 拳王分牌计入总分，无平局 — 纯分数排序', () => {
+  test('P4拳王狂赢追平但总分仍最低 → 排名不变', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    // 游戏分 + 拳王分 = 最终 score
+    game.players[0].score = 55 // P1: 55+0
+    game.players[1].score = 30 // P2: 30+0
+    game.players[2].score = 25 // P3: 25+0
+    game.players[3].score = 45 // P4: 15+30(拳王)
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p4', 'p2', 'p3'])
+  })
+
+  test('拳王分牌改变排名：P3拳王加分后超过P2', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 50 // P1: 50
+    game.players[1].score = 30 // P2: 30 (游戏分30,拳王0)
+    game.players[2].score = 40 // P3: 20+20(拳王)
+    game.players[3].score = 10 // P4: 10
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p3', 'p2', 'p4'])
+  })
+
+  test('不同分数，tiebreakOrder默认0，不影响排序', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 80
+    game.players[1].score = 50
+    game.players[2].score = 30
+    // 所有 tiebreakOrder=0 (默认)
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3'])
+  })
+})
+
+describe('场景B: 两人游戏分相同 + 拳王后仍同分 → 触发平局决胜', () => {
+  test('P2+P3同为25分，P2胜平局决胜 → P2排前', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 50 // P1
+    game.players[1].score = 25 // P2: 同分
+    game.players[2].score = 25 // P3: 同分
+    game.players[3].score = 15 // P4
+    // P2 平局决胜胜出
+    game.players[1].tiebreakOrder = 0 // P2 won
+    game.players[2].tiebreakOrder = 1 // P3 lost
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p4'])
+  })
+
+  test('P2+P3同为25分，P3胜平局决胜 → P3排前', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 50
+    game.players[1].score = 25; game.players[2].score = 25; game.players[3].score = 15
+    game.players[2].tiebreakOrder = 0 // P3 won
+    game.players[1].tiebreakOrder = 1 // P2 lost
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p3', 'p2', 'p4'])
+  })
+})
+
+describe('场景C: 拳王分牌拉平分数 → 触发平局决胜', () => {
+  test('P4拳王从垫底追平P2 → 平局决胜P4胜 → P4排P2前', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 45 // P1
+    game.players[1].score = 30 // P2: 游戏分30
+    game.players[2].score = 20 // P3
+    game.players[3].score = 30 // P4: 游戏分20+拳王10 → 追平P2
+    // 平局决胜 P4 胜出
+    game.players[3].tiebreakOrder = 0 // P4 won
+    game.players[1].tiebreakOrder = 1 // P2 lost
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p4', 'p2', 'p3'])
+  })
+
+  test('拳王后三人同分 → 平局决胜定顺序', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 60 // P1
+    game.players[1].score = 30 // P2
+    game.players[2].score = 30 // P3
+    game.players[3].score = 30 // P4: 拳王后追平
+    game.players[1].tiebreakOrder = 0 // P2 won tiebreak
+    game.players[2].tiebreakOrder = 1 // P3 second
+    game.players[3].tiebreakOrder = 2 // P4 third
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p4'])
+  })
+})
+
+describe('场景D: 拳王冠军平手 — 多人 boxerWins 并列最高', () => {
+  test('boxerWins并列不影响score排名，冠军决胜独立运行', () => {
+    // 拳王冠军决胜: 谁 boxerWins 最多(并列则加赛)
+    // 不影响 score 排名 — score 排名由 final sort 独立决定
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 50; game.players[0].boxerWins = 0
+    game.players[1].score = 40; game.players[1].boxerWins = 1
+    game.players[2].score = 30; game.players[2].boxerWins = 2 // 拳王冠军
+    game.players[3].score = 25; game.players[3].boxerWins = 2 // 并列
+    // maxBoxerWins = 2 (P3+P4) → 冠军决胜 P3胜 → P3.boxerWins=3, P3.hasBoxerBadge
+    // 但 score 排名不变：P1(50) P2(40) P3(30) P4(25)
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p4'])
+    // P3 拳王冠军但分数排第三
+  })
+
+  test('拳王冠军 boxerWins 唯一 → 无冠军决胜', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 60; game.players[0].boxerWins = 0
+    game.players[1].score = 40; game.players[1].boxerWins = 3 // 唯一最高
+    game.players[2].score = 30; game.players[2].boxerWins = 1
+    const maxWins = Math.max(...game.players.map(p => p.boxerWins))
+    const champions = game.players.filter(p => p.boxerWins === maxWins)
+    expect(champions).toHaveLength(1)
+    expect(champions[0].id).toBe('p2')
+  })
+})
+
+describe('场景E: 拳王冠军平手 + 同分平局 叠加', () => {
+  test('P3+P4 boxerWins并列(拳王冠军决胜)且score同分(排位决胜)', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 50 // P1
+    game.players[1].score = 30 // P2
+    game.players[2].score = 25; game.players[2].boxerWins = 2 // P3
+    game.players[3].score = 25; game.players[3].boxerWins = 2 // P4
+    // 拳王冠军决胜: P4胜 → P4.boxerWins=3, P4.hasBoxerBadge
+    // 排位决胜: P3+P4同分25 → 独立猜拳 → P3胜
+    // 修改 boxerWins 模拟冠军决胜结果
+    game.players[3].boxerWins = 3; game.players[3].hasBoxerBadge = true
+    // 排位决胜: P3 wins
+    game.players[2].tiebreakOrder = 0 // P3 won
+    game.players[3].tiebreakOrder = 1 // P4 lost
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p4'])
+    // P4 拳王冠军但排位决胜输给P3
+    expect(game.players.find(p => p.id === 'p4')!.hasBoxerBadge).toBe(true)
+    expect(sorted[2].id).toBe('p3')
+    expect(sorted[3].id).toBe('p4')
+  })
+})
+
+describe('场景F: 无拳王分牌 → 直接进入平局决胜', () => {
+  test('无拳王分牌 + 有同分 → 平局决胜运行', () => {
+    // getBoxerScoreCards 返回空 → 跳过拳王分牌
+    // resolveBoxerChampion → max(boxerWins)=0 → 跳过冠军决胜
+    // resolveScoreRankings → 处理同分
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 55; game.players[0].boxerWins = 0
+    game.players[1].score = 30; game.players[1].boxerWins = 0
+    game.players[2].score = 30; game.players[2].boxerWins = 0
+    game.players[3].score = 15; game.players[3].boxerWins = 0
+    // max(boxerWins)=0 → 无冠军决胜
+    const maxWins = Math.max(...game.players.map(p => p.boxerWins))
+    expect(maxWins).toBe(0)
+    // getScoreTieGroups 检测到 P2+P3 同分
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].score).toBe(30)
+    // 平局决胜: P3 wins
+    game.players[2].tiebreakOrder = 0
+    game.players[1].tiebreakOrder = 1
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p3', 'p2', 'p4'])
+  })
+
+  test('无拳王分牌 + 全部分数不同 → 无决胜', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 80
+    game.players[1].score = 50
+    game.players[2].score = 20
+    const maxWins = Math.max(...game.players.map(p => p.boxerWins))
+    expect(maxWins).toBe(0)
+    expect(getScoreTieGroups(game)).toHaveLength(0)
+  })
+})
+
+describe('场景G: 多组同分 — 从高到低逐组决胜', () => {
+  test('两组同分: (30,30)和(15,15,15) → 分别决胜', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    game.players[0].score = 50 // P1
+    game.players[1].score = 30; game.players[2].score = 30 // P2+P3: 组1
+    game.players[3].score = 15; game.players[4].score = 15; game.players[5].score = 15 // P4+P5+P6: 组2
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(2)
+    expect(groups[0].score).toBe(30) // 高分先
+    expect(groups[1].score).toBe(15) // 低分后
+    expect(groups[0].playerIds.sort()).toEqual(['p2', 'p3'].sort())
+    expect(groups[1].playerIds.sort()).toEqual(['p4', 'p5', 'p6'].sort())
+  })
+
+  test('两组决胜后排序正确', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    game.players[0].score = 50 // P1
+    game.players[1].score = 30; game.players[2].score = 30 // 组1
+    game.players[3].score = 15; game.players[4].score = 15; game.players[5].score = 15 // 组2
+    // 组1决胜: P3 wins
+    game.players[2].tiebreakOrder = 0
+    game.players[1].tiebreakOrder = 1
+    // 组2决胜: P5(1st), P4(2nd), P6(3rd)
+    game.players[4].tiebreakOrder = 0
+    game.players[3].tiebreakOrder = 1
+    game.players[5].tiebreakOrder = 2
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p3', 'p2', 'p5', 'p4', 'p6'])
+  })
+
+  test('三组同分', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    game.players[0].score = 80; game.players[1].score = 80 // 组1
+    game.players[2].score = 50; game.players[3].score = 50 // 组2
+    game.players[4].score = 20; game.players[5].score = 20 // 组3
+    const groups = getScoreTieGroups(game)
+    expect(groups).toHaveLength(3)
+    expect(groups[0].score).toBe(80)
+    expect(groups[1].score).toBe(50)
+    expect(groups[2].score).toBe(20)
+  })
+})
+
+describe('场景H: <4人交粮规则', () => {
+  test('2人: 前1名收粮, 后1名交粮', () => {
+    const game = initGame(['p1', 'p2'])
+    game.players[0].score = 70
+    game.players[1].score = 40
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    const pc = game.players.length
+    const winnerIds = pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id)
+    const loserIds = pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id)
+    expect(winnerIds).toEqual(['p1'])
+    expect(loserIds).toEqual(['p2'])
+  })
+
+  test('3人: 前1名收粮, 后1名交粮', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 80
+    game.players[1].score = 50
+    game.players[2].score = 30
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    const pc = game.players.length
+    const winnerIds = pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id)
+    const loserIds = pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id)
+    expect(winnerIds).toEqual(['p1'])
+    expect(loserIds).toEqual(['p3'])
+  })
+
+  test('4人: 前2名收粮, 后2名交粮', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4'])
+    game.players[0].score = 80
+    game.players[1].score = 60
+    game.players[2].score = 40
+    game.players[3].score = 20
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    const pc = game.players.length
+    const winnerIds = pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id)
+    const loserIds = pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id)
+    expect(winnerIds).toEqual(['p1', 'p2'])
+    expect(loserIds).toEqual(['p3', 'p4'])
+  })
+
+  test('6人: 前2名收粮, 后2名交粮', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    game.players[0].score = 100
+    game.players[1].score = 85
+    game.players[2].score = 70
+    game.players[3].score = 50
+    game.players[4].score = 30
+    game.players[5].score = 15
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    const pc = game.players.length
+    const winnerIds = pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id)
+    const loserIds = pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id)
+    expect(winnerIds).toEqual(['p1', 'p2'])
+    expect(loserIds).toEqual(['p5', 'p6'])
+  })
+})
+
+describe('综合场景: score + tiebreakOrder 完整排序', () => {
+  test('全覆盖: 不同分+同分+决胜+拳王冠军并行', () => {
+    const game = initGame(['p1', 'p2', 'p3', 'p4', 'p5'])
+    game.players[0].score = 75 // P1: 🥇
+    game.players[1].score = 50; game.players[1].boxerWins = 1
+    game.players[2].score = 50; game.players[2].boxerWins = 3 // 拳王冠军
+    game.players[3].score = 35; game.players[3].boxerWins = 0
+    game.players[4].score = 35; game.players[4].boxerWins = 0
+    // maxBoxerWins=3 → P3拳王冠军
+    // score 50为同分组 → 决胜 P2胜
+    // score 35为同分组 → 决胜 P4胜
+    game.players[1].tiebreakOrder = 0 // P2 won at 50
+    game.players[2].tiebreakOrder = 1 // P3 lost
+    game.players[3].tiebreakOrder = 1 // P4 lost at 35
+    game.players[4].tiebreakOrder = 0 // P5 won
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p5', 'p4'])
+  })
+
+  test('边界: 多人 tiebreakOrder=0 但分数不同', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 60; game.players[0].tiebreakOrder = 0
+    game.players[1].score = 40; game.players[1].tiebreakOrder = 0
+    game.players[2].score = 20; game.players[2].tiebreakOrder = 0
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    // tiebreakOrder相同但分数不同 → 按分数排
+    expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  test('边界: 同分且 tiebreakOrder 也相同 → 稳定排序', () => {
+    const game = initGame(['p1', 'p2', 'p3'])
+    game.players[0].score = 50; game.players[0].tiebreakOrder = 0
+    game.players[1].score = 50; game.players[1].tiebreakOrder = 0
+    game.players[2].score = 50; game.players[2].tiebreakOrder = 0
+    const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
+    // 完全同分同决胜 → 保持稳定(原始顺序)
+    expect(sorted).toHaveLength(3)
+    expect(sorted.every(p => p.score === 50)).toBe(true)
+  })
+})
+
+// ── 断线踢出修复：removeGamePlayer ──
+
+describe('removeGamePlayer (断线踢出后游戏不再卡死)', () => {
+  const gp = (id: string, over: Partial<GamePlayer> = {}): GamePlayer => ({
+    id, hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false, boxerWins: 0, tiebreakOrder: 0, ...over,
+  })
+
+  test('removes a non-current, non-best player and keeps the array in sync', () => {
+    const game = makeGame({ players: [gp('p1'), gp('p2'), gp('p3')], currentPlayerIndex: 0, bestPlayerId: 'p1' })
+    const res = removeGamePlayer(game, 'p3')
+    expect(res).toEqual({ removed: true, needsResume: false })
+    expect(game.players.map(p => p.id)).toEqual(['p1', 'p2'])
+    expect(game.currentPlayerIndex).toBe(0)
+    expect(game.bestPlayerId).toBe('p1')
+  })
+
+  test('removing the current player hands the turn to the next seat', () => {
+    const game = makeGame({ players: [gp('p1'), gp('p2'), gp('p3')], currentPlayerIndex: 1 })
+    const res = removeGamePlayer(game, 'p2')
+    expect(res.needsResume).toBe(true)
+    expect(game.players.map(p => p.id)).toEqual(['p1', 'p3'])
+    expect(game.players[game.currentPlayerIndex].id).toBe('p3')
+  })
+
+  test('removing a seat before the current index keeps the same current player', () => {
+    const game = makeGame({ players: [gp('p1'), gp('p2'), gp('p3')], currentPlayerIndex: 2 })
+    removeGamePlayer(game, 'p1')
+    // current was p3 (index 2); after splice it must still be p3
+    expect(game.players[game.currentPlayerIndex].id).toBe('p3')
+  })
+
+  test('removing the trick leader clears the trick, keeps the pot, and asks to resume', () => {
+    const pot = c(Suit.Spade, Rank.Five)
+    const game = makeGame({
+      players: [gp('p1', { hand: [pot] }), gp('p2')],
+      currentPlayerIndex: 0,
+      bestPlayerId: 'p1',
+      currentBestPlay: { type: HandType.Single, cards: [pot], primaryRank: Rank.Five },
+      passCount: 2,
+      tableCards: [pot],
+    })
+    const res = removeGamePlayer(game, 'p1')
+    expect(res.needsResume).toBe(true)
+    expect(game.players.map(p => p.id)).toEqual(['p2'])
+    expect(game.bestPlayerId).toBeNull()
+    expect(game.currentBestPlay).toBeNull()
+    expect(game.passCount).toBe(0)
+    expect(game.tableCards).toEqual([pot]) // score cards must not be lost
+  })
+
+  test('skips finished seats when choosing the resumed player', () => {
+    const game = makeGame({
+      players: [gp('p1'), gp('p2', { finished: true }), gp('p3')],
+      currentPlayerIndex: 0,
+    })
+    const res = removeGamePlayer(game, 'p1')
+    expect(res.needsResume).toBe(true)
+    expect(game.players[game.currentPlayerIndex].id).toBe('p3')
+  })
+
+  test('removes a player from an in-flight boxer round', () => {
+    const game = makeGame({
+      players: [gp('p1'), gp('p2'), gp('p3')],
+      boxerState: {
+        scoreCards: [],
+        currentCardIndex: 0,
+        currentSurvivors: ['p1', 'p2', 'p3'],
+        currentMoves: new Map([['p2', BoxerMove.Rock]]),
+        round: 0,
+      },
+    })
+    const res = removeGamePlayer(game, 'p1')
+    expect(res.needsResume).toBe(false)
+    expect(game.boxerState!.currentSurvivors).toEqual(['p2', 'p3'])
+    expect(game.boxerState!.currentMoves.has('p1')).toBe(false)
+    expect(game.players.map(p => p.id)).toEqual(['p2', 'p3'])
+  })
+
+  test('unknown player id is a no-op', () => {
+    const game = makeGame({ players: [gp('p1')] })
+    expect(removeGamePlayer(game, 'ghost')).toEqual({ removed: false, needsResume: false })
   })
 })

@@ -40,7 +40,7 @@ import ScorePopup from './ScorePopup.vue'
 
 const store = useGameStore()
 const props = defineProps<{
-  players: { id: string; name: string; cardCount: number; score: number }[]
+  players: { id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number }[]
   currentPlayerId: string
   playerNames: Record<string, string>
 }>()

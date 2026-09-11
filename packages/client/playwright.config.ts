@@ -9,7 +9,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: [
-    { command: 'pnpm --filter @79523/server dev', port: 3000, cwd: '../..', reuseExistingServer: true },
-    { command: 'pnpm --filter @79523/client dev', port: 5173, cwd: '../..', reuseExistingServer: true },
+    { command: 'npx pnpm --filter @79523/server dev', port: 3000, cwd: '../..', reuseExistingServer: true },
+    { command: 'npx pnpm --filter @79523/client dev', port: 5173, cwd: '../..', reuseExistingServer: true },
   ],
 })

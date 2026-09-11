@@ -137,8 +137,6 @@ function submitMove(move: string) {
 }
 
 // Reset when new boxer round starts
-import { watch } from 'vue'
-
 function startCountdown() {
   countdown.value = 3
   revealPhase.value = 'hidden'

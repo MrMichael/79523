@@ -64,10 +64,19 @@ onMounted(() => {
 })
 
 const isHost = computed(() => players.value.some(p => p.id === myId.value && p.isHost))
-const hasStats = computed(() => players.value.some(p => (p.wins ?? 0) > 0 || (p.boxerWins ?? 0) > 0))
-const sortedPlayers = computed(() =>
-  [...players.value].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.boxerWins ?? 0) - (a.boxerWins ?? 0))
+const hasStats = computed(() =>
+  players.value.some(p => (p.wins ?? 0) > 0 || (p.boxerWins ?? 0) > 0) ||
+  gameStore.finalRankings.length > 0
 )
+const sortedPlayers = computed(() => {
+  // Use server's authoritative ranking from last game scores_updated event
+  const rankings = gameStore.finalRankings
+  if (rankings.length) {
+    return rankings.map(r => players.value.find(p => p.id === r.id)).filter(Boolean) as typeof players.value
+  }
+  // Fallback for fresh room with no game history
+  return [...players.value].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.boxerWins ?? 0) - (a.boxerWins ?? 0))
+})
 function rankLabel(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}` }
 const lastGameScores = computed(() => {
   const scores: Record<string, number> = {}

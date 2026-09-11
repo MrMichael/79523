@@ -58,20 +58,43 @@ export const useGameStore = defineStore('game', () => {
   function clearRoundBanner() { roundWinnerId.value = ''; roundScoreCards.value = [] }
   function bumpTrick() { trickVersion.value++ }
 
-  // Debug: trace isMyTurn changes
-  let _lastTurn = false
-  setInterval(() => {
-    if (isMyTurn.value !== _lastTurn) {
-      _lastTurn = isMyTurn.value
-      const stack = new Error().stack?.split('\n').slice(2, 6).join(' → ')
-      console.log(`[STORE] isMyTurn → ${isMyTurn.value} hand:${myHand.value.length} cur:${currentPlayerId.value} myId:${myId.value}`)
-    }
-  }, 100)
+  function reset() {
+    myHand.value = []
+    tableCards.value = []
+    selectedCards.value = []
+    scores.value = {}
+    isMyTurn.value = false
+    timeLeft.value = 30
+    deckCount.value = 104
+    phase.value = ''
+    currentPlayerId.value = ''
+    myId.value = ''
+    gameOver.value = false
+    lastPlayType.value = ''
+    lastPlayedCards.value = []
+    lastPlayPlayer.value = ''
+    lastPassPlayer.value = ''
+    roundWinnerId.value = ''
+    roundScoreCards.value = []
+    finalRankings.value = []
+    errorMessage.value = ''
+    trickVersion.value = 0
+    boxerPhase.value = 'idle'
+    boxerScoreCard.value = null
+    boxerParticipants.value = []
+    boxerMoves.value = {}
+    boxerSurvivors.value = []
+    boxerWinnerId.value = ''
+    boxerCountdown.value = 3
+    boxerGameScores.value = {}
+    boxerWinPoints.value = 0
+    boxerWinCounts.value = {}
+  }
 
   return {
     myHand, tableCards, selectedCards, scores, isMyTurn, timeLeft, deckCount,
     phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
     boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints,
-    selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick,
+    selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick, reset,
   }
 })

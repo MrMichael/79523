@@ -2,7 +2,14 @@ import { createDeck, shuffle, draw, identify, beats, calculateScore, compareCard
 import type { Card } from '@79523/engine'
 import type { ServerGame, GamePlayer } from './types'
 
-export function initGame(playerIds: string[], leadPlayerId?: string): ServerGame {
+/**
+ * Initialise a game state.
+ * @param leadPlayerId  Explicit first player (subsequent games use the surrender result).
+ * @param isFirstGame   Only the session's first game enforces the "first play must include
+ *                      your smallest card" rule (Design §4.1). Later games' first trick is
+ *                      led by the surrender loser with any hand type.
+ */
+export function initGame(playerIds: string[], leadPlayerId?: string, isFirstGame = true): ServerGame {
   const deck = shuffle(createDeck(playerIds.length))
   const players: GamePlayer[] = playerIds.map(id => ({
     id, hand: [], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false, boxerWins: 0, tiebreakOrder: 0,
@@ -25,7 +32,7 @@ export function initGame(playerIds: string[], leadPlayerId?: string): ServerGame
     tableCards: [],
     gameOver: false,
     roundParticipants: new Set(),
-    isFirstTrick: true,
+    isFirstTrick: isFirstGame,
     boxerState: null,
   }
 }
@@ -324,9 +331,12 @@ export function executeSurrenderSwap(game: ServerGame): {
 
   // Sort losers by their largest single (bigger card goes to 1st winner)
   // Skip losers with empty hands (finished players)
-  const loserCards = bottomTwo.map(l => ({ player: l, card: getLargestSingle(l.hand) }))
-    .filter(e => e.card !== null)
-    .sort((a, b) => compareCards(b.card!, a.card!))
+  const loserCards = bottomTwo
+    .flatMap(l => {
+      const card = getLargestSingle(l.hand)
+      return card ? [{ player: l, card }] : []
+    })
+    .sort((a, b) => compareCards(b.card, a.card))
 
   for (let i = 0; i < loserCards.length; i++) {
     const { player: loser, card: gaveUpCard } = loserCards[i]
@@ -344,4 +354,57 @@ export function executeSurrenderSwap(game: ServerGame): {
 
   const nextLeadPlayerId = determineNextLead(surrenderedCards)
   return { swaps, nextLeadPlayerId }
+}
+
+/**
+ * Remove a player who left (e.g. disconnected and was kicked) from an in-progress game.
+ *
+ * Keeps `game.players` the single source of truth so downstream logic (turn rotation,
+ * scoring, boxer) never has to look a departed player up again. If the departed player was
+ * the current player or the trick leader, the trick is reset and `needsResume` is returned
+ * so the caller can hand the turn to the next player. The table pot is intentionally kept so
+ * score cards already played are not lost — the next trick winner collects it.
+ *
+ * @returns `needsResume` — caller should start a fresh turn for `game.currentPlayerIndex`.
+ */
+export function removeGamePlayer(game: ServerGame, playerId: string): { removed: boolean; needsResume: boolean } {
+  const idx = game.players.findIndex(p => p.id === playerId)
+  if (idx === -1) return { removed: false, needsResume: false }
+
+  const wasCurrent = idx === game.currentPlayerIndex
+  const wasBest = game.bestPlayerId === playerId
+
+  game.roundParticipants.delete(playerId)
+  game.players.splice(idx, 1)
+
+  // Splice shifts later indices down by one.
+  if (idx < game.currentPlayerIndex) game.currentPlayerIndex--
+  if (game.players.length === 0) {
+    game.currentPlayerIndex = 0
+    return { removed: true, needsResume: false }
+  }
+  game.currentPlayerIndex = Math.max(0, Math.min(game.currentPlayerIndex, game.players.length - 1))
+
+  // The winning play walked off the table — clear the trick so the next player can lead.
+  if (wasBest) {
+    game.currentBestPlay = null
+    game.bestPlayerId = null
+    game.passCount = 0
+  }
+
+  // Boxer: drop the seat from the in-flight round; the caller decides whether to advance it.
+  if (game.boxerState) {
+    const bs = game.boxerState
+    bs.currentSurvivors = bs.currentSurvivors.filter(id => id !== playerId)
+    bs.currentMoves.delete(playerId)
+    return { removed: true, needsResume: false }
+  }
+
+  // Skip finished seats for the resumed turn.
+  let guard = 0
+  while (game.players[game.currentPlayerIndex]?.finished && guard++ < game.players.length) {
+    game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length
+  }
+
+  return { removed: true, needsResume: wasCurrent || wasBest }
 }
