@@ -9,6 +9,7 @@ import { verifyToken } from './auth'
 import { findUserById } from './db'
 import { bindOnline, markOnline, markOffline } from './online'
 import { broadcastLobby } from './lobby'
+import { persistGameStats } from './stats'
 import type { Card } from '@79523/engine'
 
 import type { Room } from './types'
@@ -326,6 +327,9 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
     const gameWinner = room.players.find(p => p.id === sorted[0].id)
     if (gameWinner) gameWinner.wins++
   }
+
+  // Persist cumulative account stats (skips AI / removed accounts).
+  persistGameStats(game.players.map(p => ({ id: p.id, rank1: sorted[0]?.id === p.id, boxerWins: p.boxerWins })))
 
   // Save surrender info for after next game's cards are dealt
   room.pendingSurrender = {
