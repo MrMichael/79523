@@ -3,6 +3,9 @@ import cors from 'cors'
 import { createServer } from 'http'
 import apiRoutes from './api'
 import { setupWebSocket } from './ws'
+import { initDb } from './db'
+
+initDb()
 
 const app = express()
 const httpServer = createServer(app)

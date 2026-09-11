@@ -18,6 +18,7 @@ export interface Room {
   players: Player[]
   createdAt: number
   game: ServerGame | null
+  hostId?: string
   nextLeadPlayerId?: string  // From surrender swap, for next game's first trick (Design §4.2)
   surrenderState?: SurrenderState | null
   pendingSurrender?: { winnerIds: string[]; loserIds: string[] }
