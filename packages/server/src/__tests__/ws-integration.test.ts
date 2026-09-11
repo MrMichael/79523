@@ -46,7 +46,7 @@ function waitFor<T = any>(socket: Socket, event: string, timeout = 5000): Promis
 }
 
 async function connectClient(): Promise<Socket> {
-  const user = registerUser(`u${Date.now()}_${userSeq++}`, 'secret123')
+  const user = registerUser(`u${Date.now() % 1_000_000}_${userSeq++}`, 'secret123')
   const socket = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
   sockets.push(socket)
   await waitFor(socket, 'connect')

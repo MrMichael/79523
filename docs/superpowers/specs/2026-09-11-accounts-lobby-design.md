@@ -43,7 +43,7 @@
 ```sql
 CREATE TABLE users (
   id            TEXT PRIMARY KEY,       -- uuid
-  username      TEXT UNIQUE NOT NULL,   -- 登录名，3-20，[A-Za-z0-9_]
+  username      TEXT UNIQUE NOT NULL,   -- 登录名，2-12，中文/字母/数字/下划线
   password_hash TEXT NOT NULL,          -- bcrypt
   role          TEXT NOT NULL,          -- 'admin' | 'user'
   wins          INTEGER NOT NULL DEFAULT 0,   -- 累计胜局（每局最终第一名）
@@ -150,7 +150,7 @@ CREATE TABLE users (
 ## 14. 安全与边界
 
 - 密码仅存 bcrypt 哈希；登录失败统一提示"用户名或密码错误"。
-- 用户名唯一、`[A-Za-z0-9_]{3,20}`；密码≥6 位。
+- 用户名唯一、`[\p{L}\p{N}_]{2,12}`（允许中文）；密码≥6 位。
 - 令牌过期（7 天）需重新登录；`/api/*` 与 socket 均校验。
 - 管理员接口全部 `role==='admin'` 校验 + 防自删/自降。
 - 被删/被踢用户：断开 socket，前端下个请求 401 → 回登录页。

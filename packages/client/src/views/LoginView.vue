@@ -7,7 +7,7 @@
     </div>
     <div class="card">
       <p class="mode">{{ mode === 'login' ? '登录' : '注册' }}</p>
-      <input v-model="username" placeholder="用户名（3-20 位字母/数字/下划线）" maxlength="20" class="field" />
+      <input v-model="username" placeholder="用户名（2-12 位，可中文）" maxlength="12" class="field" />
       <input v-model="password" type="password" placeholder="密码（至少 6 位）" class="field" @keyup.enter="submit" />
       <button class="submit" :disabled="!username || !password" @click="submit">
         {{ mode === 'login' ? '登录' : '注册' }}

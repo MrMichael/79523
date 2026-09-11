@@ -19,10 +19,16 @@ describe('auth', () => {
   })
 
   test('register validation + uniqueness', () => {
-    expect(() => registerUser('ab', 'secret123')).toThrow()
+    expect(() => registerUser('a', 'secret123')).toThrow()
     expect(() => registerUser('bob', '123')).toThrow()
     registerUser('bob', 'secret123')
     expect(() => registerUser('bob', 'secret123')).toThrow()
+  })
+
+  test('accepts Chinese usernames', () => {
+    const u = registerUser('小李', 'secret123')
+    expect(u.username).toBe('小李')
+    expect(authenticate('小李', 'secret123')!.id).toBe(u.id)
   })
 
   test('authenticate', () => {
