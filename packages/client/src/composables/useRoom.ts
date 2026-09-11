@@ -4,6 +4,8 @@ import { useGame } from './useGame'
 import { useGameStore } from '@/stores/game'
 import type { PlayerInfo } from '@/types'
 import { useRouter } from 'vue-router'
+import { apiFetch } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
 // Module-level shared state — survives route changes
 const roomCode = ref('')
@@ -35,6 +37,16 @@ export function useRoom() {
   function addAI() { socket.value?.emit('add_ai') }
   function fillAI() { socket.value?.emit('fill_ai') }
   function removeAI(id: string) { socket.value?.emit('remove_ai', { playerId: id }) }
+
+  async function refreshRoom() {
+    if (!roomCode.value) return
+    try {
+      const d = await apiFetch(`/api/rooms/${roomCode.value}`)
+      players.value = d.players as PlayerInfo[]
+      const auth = useAuthStore()
+      myId.value = auth.user?.id || ''
+    } catch { /* room no longer exists */ }
+  }
 
   function setupListeners() {
     if (listenersSetup) return
@@ -79,5 +91,5 @@ export function useRoom() {
     listenersSetup = false
   }
 
-  return { roomCode, players, myId, createRoom, joinRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom }
+  return { roomCode, players, myId, createRoom, joinRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
 }

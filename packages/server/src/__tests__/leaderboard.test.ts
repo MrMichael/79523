@@ -44,4 +44,12 @@ describe('leaderboard', () => {
       expect((await fetch(`${base}/api/leaderboard`)).status).toBe(401)
     })
   })
+
+  test('GET /rooms/:code returns room state', async () => {
+    await withServer(async base => {
+      const viewer = createUser('viewer', 'h')
+      const h = { authorization: `Bearer ${signToken(viewer)}` }
+      expect((await fetch(`${base}/api/rooms/NOPE00`, { headers: h })).status).toBe(404)
+    })
+  })
 })

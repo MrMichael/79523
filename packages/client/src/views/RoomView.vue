@@ -55,18 +55,25 @@ import { ref, computed, onMounted } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useRoom } from '@/composables/useRoom'
 import { useGameStore } from '@/stores/game'
+import { useAuthStore } from '@/stores/auth'
+import { useRoute } from 'vue-router'
 
 const { connect } = useSocket()
-const { roomCode, players, myId, startGame, addAI, fillAI, removeAI, setupListeners } = useRoom()
+const { roomCode, players, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom } = useRoom()
 const gameStore = useGameStore()
+const auth = useAuthStore()
+const route = useRoute()
 const copied = ref(false)
 
-onMounted(() => {
+onMounted(async () => {
+  roomCode.value = (route.params.code as string) || ''
   connect()
   setupListeners()
+  if (!auth.user) await auth.loadMe()
+  await refreshRoom()
 })
 
-const isHost = computed(() => players.value.some(p => p.id === myId.value && p.isHost))
+const isHost = computed(() => players.value.some(p => p.id === auth.user?.id && p.isHost))
 const hasStats = computed(() =>
   players.value.some(p => (p.wins ?? 0) > 0 || (p.boxerWins ?? 0) > 0) ||
   gameStore.finalRankings.length > 0

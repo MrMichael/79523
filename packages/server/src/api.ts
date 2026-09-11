@@ -62,6 +62,21 @@ router.get('/rooms', requireAuth, (_req, res) => {
   )
 })
 
+router.get('/rooms/:code', requireAuth, (req, res) => {
+  const room = getRoom(req.params.code)
+  if (!room) { res.status(404).json({ error: '房间不存在' }); return }
+  res.json({
+    code: room.code,
+    hostId: room.hostId,
+    maxPlayers: room.maxPlayers,
+    inGame: room.game !== null,
+    players: room.players.map(p => ({
+      id: p.id, name: p.name, ready: p.ready, connected: p.connected,
+      isHost: p.isHost, isAI: !!p.isAI, wins: p.wins, boxerWins: p.boxerWins,
+    })),
+  })
+})
+
 router.post('/rooms', requireAuth, (req: AuthedRequest, res) => {
   const room = createRoom(6)
   room.hostId = req.user!.id
