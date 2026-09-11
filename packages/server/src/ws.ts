@@ -125,21 +125,26 @@ function maybeResolveBoxer(io: WsServer, roomCode: string, game: NonNullable<Roo
   else processBoxerRound(io, roomCode, game)
 }
 
-/** Schedule random moves for AI boxer survivors that haven't submitted yet. */
+/**
+ * Schedule boxer moves: AI submit quickly, humans get a timeout fallback so the round
+ * never deadlocks waiting on an unresponsive player.
+ */
 function scheduleBotBoxer(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
   const bs = game.boxerState
   if (!bs) return
   const room = getRoom(roomCode)
+  const humanTimeout = Number(process.env.BOXER_TIMEOUT_MS) || 15000
   for (const id of bs.currentSurvivors) {
+    if (bs.currentMoves.has(id)) continue
     const rp = room?.players.find(p => p.id === id)
-    if (!rp?.isAI || bs.currentMoves.has(id)) continue
+    const delay = rp?.isAI ? botDelayMs() : humanTimeout
     setTimeout(() => {
       const cur = game.boxerState
       if (cur !== bs) return
       if (!cur.currentSurvivors.includes(id) || cur.currentMoves.has(id)) return
       cur.currentMoves.set(id, chooseBoxerMove())
       maybeResolveBoxer(io, roomCode, game)
-    }, botDelayMs())
+    }, delay)
   }
 }
 

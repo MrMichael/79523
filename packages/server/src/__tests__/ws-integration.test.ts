@@ -269,4 +269,46 @@ describe('WebSocket integration', () => {
       delete process.env.FLOW_DELAY_MS
     }
   }, 60000)
+
+  test('boxer auto-resolves even if a human never submits a move', async () => {
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_TIMEOUT_MS = '60'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', {})
+      await waitFor(host, 'room_created')
+      const full = new Promise<void>(resolve => {
+        const check = (d: any) => { if (d.players.length >= 4) { host.off('players_updated', check); resolve() } }
+        host.on('players_updated', check)
+      })
+      host.emit('add_ai'); host.emit('add_ai'); host.emit('add_ai')
+      await full
+
+      // Drive turns, but NEVER respond to boxer_start.
+      let hostHand: Card[] = []
+      let tableEmpty = true
+      host.on('game_started', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('draw_card', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('play_made', () => { tableEmpty = false })
+      host.on('round_result', () => { tableEmpty = true })
+      host.on('your_turn', (d: any) => {
+        if (d.hand) hostHand = d.hand
+        const s = getSmallestCard(hostHand)
+        if (tableEmpty && s) host.emit('play', { cards: [s] })
+        else host.emit('pass')
+      })
+
+      const started = waitFor(host, 'game_started')
+      host.emit('start_game')
+      await started
+      await waitFor(host, 'game_over', 30000)
+      // Boxer must resolve via timeout so the flow reaches the next game.
+      await waitFor(host, 'next_game_lead', 20000)
+    } finally {
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_TIMEOUT_MS
+    }
+  }, 60000)
 })
