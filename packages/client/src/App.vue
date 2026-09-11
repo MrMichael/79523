@@ -21,7 +21,7 @@ const route = useRoute()
 const router = useRouter()
 const { roomCode } = useRoom()
 
-const showNav = computed(() => route.path !== '/')
+const showNav = computed(() => route.path !== '/login' && route.path !== '/lobby')
 
 function goHome() { router.push('/') }
 </script>

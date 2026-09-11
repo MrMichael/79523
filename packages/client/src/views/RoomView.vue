@@ -10,7 +10,7 @@
 
     <div class="player-section">
       <div class="player-item" v-for="p in players" :key="p.id">
-        <span class="status-dot" :class="{ ready: p.ready }"></span>
+        <span class="status-dot" :class="{ ready: p.connected }"></span>
         <span class="player-name">{{ p.name }}{{ p.isHost ? ' 👑' : '' }}{{ p.isAI ? ' 🤖' : '' }}</span>
         <button v-if="isHost && p.isAI" class="remove-ai-btn" @click="removeAI(p.id)">移除</button>
         <span class="player-stats">
@@ -18,7 +18,6 @@
             🏆{{ p.wins ?? 0 }} 🥊{{ p.boxerWins ?? 0 }}
           </span>
         </span>
-        <span class="player-state">{{ p.ready ? '已准备' : '等待中' }}</span>
       </div>
       <div v-if="players.length === 0" class="empty-hint">等待其他玩家加入...</div>
     </div>
@@ -42,12 +41,10 @@
     </div>
 
     <div class="room-footer">
-      <p v-if="!amReady" class="hint">所有人准备后自动开始</p>
-      <p v-else class="hint ready-text">已准备，等待其他玩家...</p>
+      <p v-if="players.length < 2" class="hint">至少 2 人才能开局</p>
+      <p v-else class="hint ready-text">人齐了，任意玩家都可点开局</p>
       <div class="footer-btns">
-        <button @click="handleReady" :disabled="amReady" class="ready-btn full-width">
-          {{ amReady ? '已准备' : '准备' }}
-        </button>
+        <button @click="handleStart" :disabled="players.length < 2" class="ready-btn full-width">开局</button>
       </div>
     </div>
   </div>
@@ -60,7 +57,7 @@ import { useRoom } from '@/composables/useRoom'
 import { useGameStore } from '@/stores/game'
 
 const { connect } = useSocket()
-const { roomCode, players, amReady, myId, ready, startNewGame, addAI, fillAI, removeAI, setupListeners } = useRoom()
+const { roomCode, players, myId, startGame, addAI, fillAI, removeAI, setupListeners } = useRoom()
 const gameStore = useGameStore()
 const copied = ref(false)
 
@@ -92,8 +89,7 @@ const lastGameScores = computed(() => {
   return scores
 })
 
-function handleReady() { ready() }
-function handleNewGame() { startNewGame() }
+function handleStart() { startGame() }
 function copyCode() {
   navigator.clipboard.writeText(roomCode.value)
   copied.value = true
