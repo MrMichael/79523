@@ -84,9 +84,9 @@ function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Roo
 
     bs.currentCardIndex++
     if (bs.currentCardIndex < bs.scoreCards.length) {
-      startBoxerRound(io, roomCode, game)
+      setTimeout(() => startBoxerRound(io, roomCode, game), boxerDelayMs())
     } else {
-      resolveBoxerChampion(io, roomCode, game)
+      setTimeout(() => resolveBoxerChampion(io, roomCode, game), boxerDelayMs())
     }
   } else {
     const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
@@ -105,7 +105,7 @@ function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Roo
         })
       }
       scheduleBotBoxer(io, roomCode, game)
-    }, flowDelayMs())
+    }, boxerDelayMs())
   }
 }
 
@@ -189,7 +189,7 @@ function resolveBoxerChampion(io: WsServer, roomCode: string, game: NonNullable<
       currentSurvivors: champions.map(p => p.id),
       currentMoves: new Map(), round: 0,
     }
-    setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), flowDelayMs())
+    setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), boxerDelayMs())
     return
   }
 
@@ -222,7 +222,7 @@ function resolveScoreRankings(io: WsServer, roomCode: string, game: NonNullable<
     currentMoves: new Map(), round: 0,
     tieGroupIndex: startGroupIdx,
   }
-  setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), flowDelayMs())
+  setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), boxerDelayMs())
 }
 
 function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
@@ -297,7 +297,7 @@ function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNull
     setTimeout(() => {
       const nextIdx = bs.tieGroupIndex !== undefined ? bs.tieGroupIndex + 1 : 0
       resolveScoreRankings(io, roomCode, game, nextIdx)
-    }, flowDelayMs())
+    }, boxerDelayMs())
   } else {
     const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
     for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
@@ -315,7 +315,7 @@ function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNull
         })
       }
       scheduleBotBoxer(io, roomCode, game)
-    }, flowDelayMs())
+    }, boxerDelayMs())
   }
 }
 
@@ -748,6 +748,11 @@ function botDelayMs(): number {
 
 function flowDelayMs(): number {
   return Number(process.env.FLOW_DELAY_MS) || 2000
+}
+
+/** Pause after a boxer reveal/winner so players can read it before the next round. */
+function boxerDelayMs(): number {
+  return Number(process.env.BOXER_DELAY_MS) || 3000
 }
 
 /** Route a turn to a human (your_turn) or an AI (scheduled bot action). */

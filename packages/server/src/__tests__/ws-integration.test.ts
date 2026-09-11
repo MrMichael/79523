@@ -209,6 +209,7 @@ describe('WebSocket integration', () => {
   test('host + 3 AI: full game auto-resolves (boxer + surrender)', async () => {
     process.env.BOT_DELAY_MS = '5'
     process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '5'
     try {
       const host = await connectClient()
       host.emit('create_room', {})
@@ -267,6 +268,7 @@ describe('WebSocket integration', () => {
     } finally {
       delete process.env.BOT_DELAY_MS
       delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_DELAY_MS
     }
   }, 60000)
 
@@ -274,6 +276,7 @@ describe('WebSocket integration', () => {
     process.env.BOT_DELAY_MS = '5'
     process.env.FLOW_DELAY_MS = '5'
     process.env.BOXER_TIMEOUT_MS = '60'
+    process.env.BOXER_DELAY_MS = '5'
     try {
       const host = await connectClient()
       host.emit('create_room', {})
@@ -309,6 +312,7 @@ describe('WebSocket integration', () => {
       delete process.env.BOT_DELAY_MS
       delete process.env.FLOW_DELAY_MS
       delete process.env.BOXER_TIMEOUT_MS
+      delete process.env.BOXER_DELAY_MS
     }
   }, 60000)
 })
