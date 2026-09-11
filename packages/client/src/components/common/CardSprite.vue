@@ -1,5 +1,5 @@
 <template>
-  <div class="card" :class="[suitClass, { selected, dimmed }]" @click="$emit('select')">
+  <div class="card" :class="[suitClass, { selected, dimmed }]" :style="accent ? { borderColor: accent } : undefined" @click="$emit('select')">
     <span class="rank">{{ rankLabel }}</span>
     <span class="suit">{{ suitLabel }}</span>
   </div>
@@ -10,7 +10,7 @@ import { computed } from 'vue'
 import { Suit, Rank } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
-const props = defineProps<{ card: Card; selected?: boolean; dimmed?: boolean }>()
+const props = defineProps<{ card: Card; selected?: boolean; dimmed?: boolean; accent?: string }>()
 defineEmits<{ select: [] }>()
 
 const rankLabels: Record<number, string> = {

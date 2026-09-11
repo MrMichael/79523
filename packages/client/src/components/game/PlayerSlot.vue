@@ -1,6 +1,6 @@
 <template>
-  <div class="player-slot" :class="{ active: isActive, highest: isHighest }">
-    <div class="name">{{ name }}{{ isHighest ? ' 👑' : '' }}</div>
+  <div class="player-slot" :class="{ active: isActive, highest: isHighest }" :style="color ? { borderColor: color } : undefined">
+    <div class="name" :style="color ? { color } : undefined">{{ name }}{{ isHighest ? ' 👑' : '' }}</div>
     <div class="cards-face-down">
       <div v-for="i in cardCount" :key="i" class="card-back"></div>
     </div>
@@ -9,11 +9,11 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ name: string; cardCount: number; score: number; isActive: boolean; isHighest?: boolean }>()
+defineProps<{ name: string; cardCount: number; score: number; isActive: boolean; isHighest?: boolean; color?: string }>()
 </script>
 
 <style scoped>
-.player-slot { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 0.5rem 0.75rem; border-radius: 10px; min-width: 70px; }
+.player-slot { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 0.5rem 0.75rem; border-radius: 10px; min-width: 70px; border: 1px solid transparent; }
 .player-slot.active { background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.2); }
 .name { font-weight: 700; font-size: 0.85rem; color: #e2e8f0; }
 .cards-face-down { display: flex; gap: 2px; justify-content: center; }

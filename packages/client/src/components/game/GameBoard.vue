@@ -1,12 +1,12 @@
 <template>
   <div class="game-board">
     <div class="other-players">
-      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" />
+      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" />
     </div>
     <div class="table-center">
       <DeckInfo :count="deckCount" />
       <TurnIndicator :isMyTurn="isMyTurn" :currentPlayer="currentPlayerName" :timeLeft="timeLeft" />
-      <TableCards :cards="tableCards" />
+      <TableCards :cards="tableCards" :plays="store.tablePlays" :colorMap="playerColorMap" />
     </div>
     <div class="self-score" v-if="store.myId && scores[store.myId] !== undefined">
       🏆 我的得分：<strong>{{ scores[store.myId] || 0 }}</strong> 分
@@ -31,6 +31,7 @@ import TableCards from './TableCards.vue'
 import TurnIndicator from './TurnIndicator.vue'
 import DeckInfo from './DeckInfo.vue'
 import PlayerSlot from './PlayerSlot.vue'
+import { colorForIndex } from '@/playerColors'
 import RoundBanner from './RoundBanner.vue'
 import GameOverOverlay from './GameOverOverlay.vue'
 import BoxerOverlay from './BoxerOverlay.vue'
@@ -55,6 +56,9 @@ const scores = computed(() => store.scores)
 const currentPlayerName = computed(() => props.playerNames[props.currentPlayerId] || '...')
 const mustPlay = computed(() => store.isMyTurn && !store.tableCards.length)
 const otherPlayers = computed(() => props.players.filter(p => p.id !== store.myId))
+const playerColorMap = computed<Record<string, string>>(() =>
+  Object.fromEntries(props.players.map((p, i) => [p.id, colorForIndex(i)]))
+)
 const highestScore = computed(() => Math.max(...props.players.map(p => p.score), 0))
 
 function onPlay(cards: Card[]) { emit('play', cards) }

@@ -57,6 +57,7 @@ export function useGame() {
       store.myHand = hand ?? []
       store.currentPlayerId = leadPlayerId
       store.tableCards = []
+      store.tablePlays = []
       store.deckCount = deckCount ?? 104
       store.gameOver = false
       store.finalRankings = []
@@ -91,6 +92,7 @@ export function useGame() {
 
     socket.value?.on('play_made', ({ playerId, nextPlayerId, tableCards, play }: any) => {
       store.tableCards = tableCards
+      store.tablePlays.push({ playerId, cards: play?.cards || [] })
       store.isMyTurn = false
       store.lastPlayType = play?.type || ''
       store.lastPlayedCards = play?.cards || []
@@ -125,6 +127,7 @@ export function useGame() {
       store.scores = updatedScores
       store.isMyTurn = false
       store.tableCards = []
+      store.tablePlays = []
       store.bumpTrick()
       store.roundWinnerId = winnerId || ''
       store.roundScoreCards = scoreCards || []

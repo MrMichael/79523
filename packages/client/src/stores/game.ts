@@ -5,6 +5,7 @@ import type { Card, GamePhase } from '@79523/engine'
 export const useGameStore = defineStore('game', () => {
   const myHand = ref<Card[]>([])
   const tableCards = ref<Card[]>([])
+  const tablePlays = ref<{ playerId: string; cards: Card[] }[]>([])
   const selectedCards = ref<Card[]>([])
   const scores = ref<Record<string, number>>({})
   const isMyTurn = ref(false)
@@ -61,6 +62,7 @@ export const useGameStore = defineStore('game', () => {
   function reset() {
     myHand.value = []
     tableCards.value = []
+    tablePlays.value = []
     selectedCards.value = []
     scores.value = {}
     isMyTurn.value = false
@@ -92,7 +94,7 @@ export const useGameStore = defineStore('game', () => {
   }
 
   return {
-    myHand, tableCards, selectedCards, scores, isMyTurn, timeLeft, deckCount,
+    myHand, tableCards, tablePlays, selectedCards, scores, isMyTurn, timeLeft, deckCount,
     phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
     boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints,
     selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick, reset,

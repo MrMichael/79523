@@ -106,7 +106,7 @@ sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 | 层 | 工具 | 测试数 |
 |---|------|--------|
 | 引擎 | vitest | 85 |
-| 服务端 | jest | 255 |
-| 客户端 | vitest | 46 |
+| 服务端 | jest | 259 |
+| 客户端 | vitest | 47 |
 | E2E | playwright | 1 |
-| **总计** | | **387** |
+| **总计** | | **392** |
