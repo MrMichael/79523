@@ -170,28 +170,33 @@ describe('WebSocket integration', () => {
       host.emit('fill_ai')
       await filled
 
+      // Attach listeners BEFORE ready so we don't miss the first your_turn.
+      let hostHand: Card[] = []
+      const actedIds: string[] = []
+      host.on('play_made', (d: any) => actedIds.push(d.playerId))
+      host.on('pass_made', (d: any) => actedIds.push(d.playerId))
+      host.on('draw_card', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('your_turn', (d: any) => {
+        if (d.hand) hostHand = d.hand
+        const smallest = getSmallestCard(hostHand)
+        if (smallest) host.emit('play', { cards: [smallest] })
+      })
+
       const started = waitFor<any>(host, 'game_started')
       host.emit('ready')
       const gs = await started
-      const smallest = getSmallestCard(gs.hand)!
+      hostHand = gs.hand
+      const myId = gs.myId
 
-      // Either the AI leads (acts by itself) or the host leads and the AI must respond.
-      const first = await Promise.race([
-        waitFor<any>(host, 'play_made', 4000).then(e => ({ kind: 'play' as const, e })),
-        waitFor<any>(host, 'your_turn', 4000).then(e => ({ kind: 'turn' as const, e })),
-      ])
-      if (first.kind === 'turn') {
-        const aiAction = Promise.race([
-          waitFor<any>(host, 'play_made', 3000).then(e => ({ t: 'play', e })),
-          waitFor<any>(host, 'pass_made', 3000).then(e => ({ t: 'pass', e })),
-          waitFor<any>(host, 'round_result', 3000).then(e => ({ t: 'round', e })),
-        ])
-        host.emit('play', { cards: [smallest] })
-        const action = await aiAction
-        expect(action.t).toBeTruthy()
-      } else {
-        expect(first.e.playerId).toBeTruthy() // AI led
-      }
+      // The AI must take at least one action (play or pass) without further prompting.
+      const aiActed = await new Promise<boolean>((resolve) => {
+        const deadline = Date.now() + 6000
+        const iv = setInterval(() => {
+          if (actedIds.some(id => id !== myId)) { clearInterval(iv); resolve(true) }
+          else if (Date.now() > deadline) { clearInterval(iv); resolve(false) }
+        }, 20)
+      })
+      expect(aiActed).toBe(true)
     } finally {
       delete process.env.BOT_DELAY_MS
     }
@@ -247,9 +252,9 @@ describe('WebSocket integration', () => {
       // Next game: surrender (交粮) must auto-complete and play must resume.
       host.emit('start_new_game')
       const resumed = Promise.race([
-        waitFor<any>(host, 'surrender_swap', 10000),
-        waitFor<any>(host, 'play_made', 10000),
-        waitFor<any>(host, 'your_turn', 10000),
+        waitFor<any>(host, 'surrender_swap', 10000).catch(() => null),
+        waitFor<any>(host, 'play_made', 10000).catch(() => null),
+        waitFor<any>(host, 'your_turn', 10000).catch(() => null),
       ])
       host.emit('ready')
       expect(await resumed).toBeTruthy()
