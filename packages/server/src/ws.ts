@@ -697,6 +697,46 @@ function advanceTurnAndPrompt(io: WsServer, roomCode: string, game: NonNullable<
   io.to(rp.socketId).emit('your_turn', { timeout: 30, hand: nextGp.hand, deckCount: game.deck.length })
 }
 
+/** Handle a play for a human OR an AI. Returns the handler result; caller reports errors. */
+function applyPlay(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string, cards: Card[]) {
+  const result = handlePlay(game, playerId, cards)
+  if (!result.success) return result
+  clearTurnTimer(roomCode)
+  let nextPlayerId = ''
+  if (result.roundWinner) {
+    const wi = game.players.findIndex(p => p.id === result.roundWinner)
+    if (wi >= 0) nextPlayerId = game.players[wi].id
+  } else {
+    let ni = (game.currentPlayerIndex + 1) % game.players.length
+    for (let i = 0; i < game.players.length && game.players[ni].finished; i++)
+      ni = (ni + 1) % game.players.length
+    nextPlayerId = game.players[ni].id
+  }
+  const playType = identify(cards)
+  io.to(roomCode).emit('play_made', {
+    playerId,
+    nextPlayerId,
+    play: { type: playType?.type || 'single', cards },
+    tableCards: game.tableCards,
+  })
+  if (result.roundWinner) {
+    emitRoundResult(io, roomCode, game, result.roundWinner)
+    if (handleGameOverIfNeeded(io, roomCode, game)) return result
+    emitDrawCards(io, roomCode, game, room)
+  }
+  if (!game.gameOver) advanceTurnAndPrompt(io, roomCode, game, room, result.roundWinner)
+  return result
+}
+
+/** Handle a pass for a human OR an AI. */
+function applyPass(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string) {
+  const result = handlePass(game, playerId)
+  if (!result.success) return result
+  clearTurnTimer(roomCode)
+  processPassResult(io, roomCode, game, room, result)
+  return result
+}
+
 function processPassResult(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, result: PassResult) {
   if (!result.success) return
 
@@ -990,36 +1030,8 @@ export function setupWebSocket(httpServer: HttpServer) {
       if (game.players[game.currentPlayerIndex].id !== currentPlayerId) {
         socket.emit('error', { message: 'Not your turn' }); return
       }
-      const result = handlePlay(game, currentPlayerId, cards)
-      if (!result.success) { socket.emit('error', { message: result.error || 'Invalid play' }); return }
-      clearTurnTimer(currentRoomCode)
-      // Determine next player for UI update
-      let nextPlayerId = ''
-      if (result.roundWinner) {
-        const wi = game.players.findIndex(p => p.id === result.roundWinner)
-        if (wi >= 0) nextPlayerId = game.players[wi].id
-      } else {
-        let ni = (game.currentPlayerIndex + 1) % game.players.length
-        for (let i = 0; i < game.players.length && game.players[ni].finished; i++)
-          ni = (ni + 1) % game.players.length
-        nextPlayerId = game.players[ni].id
-      }
-      const playType = identify(cards)
-      io.to(currentRoomCode).emit('play_made', {
-        playerId: currentPlayerId,
-        nextPlayerId,
-        play: { type: playType?.type || 'single', cards },
-        tableCards: game.tableCards,
-      })
-      if (result.roundWinner) {
-        emitRoundResult(io, currentRoomCode, game, result.roundWinner)
-        if (handleGameOverIfNeeded(io, currentRoomCode, game)) return
-        // Round over, game continues — emit draw cards immediately (Issue #1)
-        emitDrawCards(io, currentRoomCode, game, room)
-      }
-      if (!game.gameOver) {
-        advanceTurnAndPrompt(io, currentRoomCode, game, room, result.roundWinner)
-      }
+      const result = applyPlay(io, currentRoomCode, game, room, currentPlayerId, cards)
+      if (!result.success) socket.emit('error', { message: result.error || 'Invalid play' })
     })
 
     // ── Pass ──
@@ -1033,10 +1045,8 @@ export function setupWebSocket(httpServer: HttpServer) {
       if (game.players[game.currentPlayerIndex].id !== currentPlayerId) {
         socket.emit('error', { message: 'Not your turn' }); return
       }
-      const passResult = handlePass(game, currentPlayerId)
-      if (!passResult.success) { socket.emit('error', { message: passResult.error || 'Invalid pass' }); return }
-      clearTurnTimer(currentRoomCode)
-      processPassResult(io, currentRoomCode, game, room, passResult)
+      const result = applyPass(io, currentRoomCode, game, room, currentPlayerId)
+      if (!result.success) socket.emit('error', { message: result.error || 'Invalid pass' })
     })
 
     // ── Boxer ──
