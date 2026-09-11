@@ -11,7 +11,8 @@
     <div class="player-section">
       <div class="player-item" v-for="p in players" :key="p.id">
         <span class="status-dot" :class="{ ready: p.ready }"></span>
-        <span class="player-name">{{ p.name }}{{ p.isHost ? ' 👑' : '' }}</span>
+        <span class="player-name">{{ p.name }}{{ p.isHost ? ' 👑' : '' }}{{ p.isAI ? ' 🤖' : '' }}</span>
+        <button v-if="isHost && p.isAI" class="remove-ai-btn" @click="removeAI(p.id)">移除</button>
         <span class="player-stats">
           <span v-if="(p.wins ?? 0) > 0 || (p.boxerWins ?? 0) > 0" class="stat-badge">
             🏆{{ p.wins ?? 0 }} 🥊{{ p.boxerWins ?? 0 }}
@@ -20,6 +21,11 @@
         <span class="player-state">{{ p.ready ? '已准备' : '等待中' }}</span>
       </div>
       <div v-if="players.length === 0" class="empty-hint">等待其他玩家加入...</div>
+    </div>
+
+    <div v-if="isHost" class="ai-controls">
+      <button class="ai-btn" @click="addAI">＋AI</button>
+      <button class="ai-btn fill" @click="fillAI">补满 AI</button>
     </div>
 
     <!-- Leaderboard -->
@@ -54,7 +60,7 @@ import { useRoom } from '@/composables/useRoom'
 import { useGameStore } from '@/stores/game'
 
 const { connect } = useSocket()
-const { roomCode, players, amReady, myId, ready, startNewGame, setupListeners } = useRoom()
+const { roomCode, players, amReady, myId, ready, startNewGame, addAI, fillAI, removeAI, setupListeners } = useRoom()
 const gameStore = useGameStore()
 const copied = ref(false)
 
@@ -152,4 +158,16 @@ function copyCode() {
 .lb-rank { width: 20px; font-size: 0.85rem; flex-shrink: 0; }
 .lb-stats { color: #94a3b8; }
 .lb-score { color: #fbbf24; font-weight: 600; margin-right: 0.5rem; }
+.ai-controls { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.ai-btn {
+  flex: 1; padding: 0.6rem; font-size: 0.85rem; font-weight: 600;
+  border: 1px solid rgba(96,165,250,0.4); border-radius: 10px;
+  background: rgba(96,165,250,0.12); color: #93c5fd; cursor: pointer; transition: all 0.15s;
+}
+.ai-btn.fill { border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.12); color: #fbbf24; }
+.ai-btn:hover { transform: translateY(-1px); }
+.remove-ai-btn {
+  padding: 0.15rem 0.5rem; font-size: 0.72rem; border: 1px solid rgba(239,68,68,0.35);
+  border-radius: 6px; background: rgba(239,68,68,0.1); color: #f87171; cursor: pointer;
+}
 </style>

@@ -3,7 +3,7 @@ import type { Server as HttpServer } from 'http'
 import type { AddressInfo } from 'net'
 import { io as ioc } from 'socket.io-client'
 import type { Socket } from 'socket.io-client'
-import { getSmallestCard } from '@79523/engine'
+import { getSmallestCard, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import { setupWebSocket } from '../ws'
 
@@ -115,4 +115,152 @@ describe('WebSocket integration', () => {
       delete process.env.DISCONNECT_KICK_MS
     }
   }, 15000)
+
+  test('host can add / fill / remove AI; non-host and in-game attempts are rejected', async () => {
+    const host = await connectClient()
+    host.emit('create_room', { name: 'H', maxPlayers: 5 })
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+
+    const guest = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    guest.emit('join_room', { roomCode, playerName: 'G' })
+    await joined
+
+    // add one AI
+    const afterAdd = waitFor<any>(host, 'players_updated')
+    host.emit('add_ai')
+    let list = (await afterAdd).players
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(1)
+    expect(list.find((p: any) => p.isAI).name).toMatch(/^电脑/)
+
+    // fill the rest
+    const afterFill = waitFor<any>(host, 'players_updated')
+    host.emit('fill_ai')
+    list = (await afterFill).players
+    expect(list).toHaveLength(5)
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(3)
+
+    // non-host cannot add
+    const guestErr = waitFor<any>(guest, 'error')
+    guest.emit('add_ai')
+    expect((await guestErr).message).toMatch(/host/i)
+
+    // remove one AI
+    const aiId = list.find((p: any) => p.isAI).id
+    const afterRemove = waitFor<any>(host, 'players_updated')
+    host.emit('remove_ai', { playerId: aiId })
+    list = (await afterRemove).players
+    expect(list.find((p: any) => p.id === aiId)).toBeUndefined()
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(2)
+
+    // removing a human is rejected
+    const humanId = list.find((p: any) => !p.isAI && p.name === 'G').id
+    const hostErr = waitFor<any>(host, 'error')
+    host.emit('remove_ai', { playerId: humanId })
+    expect((await hostErr).message).toMatch(/AI/i)
+  }, 15000)
+
+  test('AI acts on its own (host + 1 AI)', async () => {
+    process.env.BOT_DELAY_MS = '20'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', { name: 'H', maxPlayers: 2 })
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const filled = waitFor<any>(host, 'players_updated')
+      host.emit('fill_ai')
+      await filled
+
+      // Attach listeners BEFORE ready so we don't miss the first your_turn.
+      let hostHand: Card[] = []
+      const actedIds: string[] = []
+      host.on('play_made', (d: any) => actedIds.push(d.playerId))
+      host.on('pass_made', (d: any) => actedIds.push(d.playerId))
+      host.on('draw_card', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('your_turn', (d: any) => {
+        if (d.hand) hostHand = d.hand
+        const smallest = getSmallestCard(hostHand)
+        if (smallest) host.emit('play', { cards: [smallest] })
+      })
+
+      const started = waitFor<any>(host, 'game_started')
+      host.emit('ready')
+      const gs = await started
+      hostHand = gs.hand
+      const myId = gs.myId
+
+      // The AI must take at least one action (play or pass) without further prompting.
+      const aiActed = await new Promise<boolean>((resolve) => {
+        const deadline = Date.now() + 6000
+        const iv = setInterval(() => {
+          if (actedIds.some(id => id !== myId)) { clearInterval(iv); resolve(true) }
+          else if (Date.now() > deadline) { clearInterval(iv); resolve(false) }
+        }, 20)
+      })
+      expect(aiActed).toBe(true)
+    } finally {
+      delete process.env.BOT_DELAY_MS
+    }
+  }, 15000)
+
+  test('host + 3 AI: full game auto-resolves (boxer + surrender)', async () => {
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', { name: 'H', maxPlayers: 4 })
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const filled = waitFor<any>(host, 'players_updated')
+      host.emit('fill_ai')
+      await filled
+
+      // Drive the lone human so the table keeps moving (lead smallest / otherwise pass).
+      let hostHand: Card[] = []
+      let tableEmpty = true
+      host.on('game_started', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('draw_card', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('play_made', () => { tableEmpty = false })
+      host.on('round_result', () => { tableEmpty = true })
+      host.on('boxer_start', () => host.emit('boxer_move', { move: 'rock' }))
+      host.on('surrender_start', (d: any) => {
+        if (d.yourRole === 'loser') {
+          host.emit('surrender_give', { card: chooseSurrenderGive(d.hand) })
+        } else if (d.yourRole === 'winner') {
+          if (d.phase === 'winners_pick' && d.surrenderedCards?.length) {
+            host.emit('surrender_pick', { card: chooseSurrenderPick(d.surrenderedCards.map((s: any) => s.card)) })
+          } else if (d.phase === 'winners_return') {
+            host.emit('surrender_return', { card: chooseSurrenderReturn(d.hand) })
+          }
+        }
+      })
+      host.on('your_turn', (d: any) => {
+        if (d.hand) hostHand = d.hand
+        const smallest = getSmallestCard(hostHand)
+        if (tableEmpty && smallest) host.emit('play', { cards: [smallest] })
+        else host.emit('pass')
+      })
+
+      const started = waitFor<any>(host, 'game_started')
+      host.emit('ready')
+      await started
+
+      const gameOver = await waitFor<any>(host, 'game_over', 30000)
+      expect(gameOver.scores).toHaveLength(4)
+
+      // Boxer + ranking tiebreaks must resolve without any human input.
+      await waitFor<any>(host, 'next_game_lead', 20000)
+
+      // Next game: surrender (交粮) must auto-complete and play must resume.
+      host.emit('start_new_game')
+      const resumed = Promise.race([
+        waitFor<any>(host, 'surrender_swap', 10000).catch(() => null),
+        waitFor<any>(host, 'play_made', 10000).catch(() => null),
+        waitFor<any>(host, 'your_turn', 10000).catch(() => null),
+      ])
+      host.emit('ready')
+      expect(await resumed).toBeTruthy()
+    } finally {
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+    }
+  }, 60000)
 })

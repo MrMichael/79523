@@ -38,6 +38,9 @@ export function useRoom() {
     amReady.value = false
     socket.value?.emit('start_new_game')
   }
+  function addAI() { socket.value?.emit('add_ai') }
+  function fillAI() { socket.value?.emit('fill_ai') }
+  function removeAI(id: string) { socket.value?.emit('remove_ai', { playerId: id }) }
 
   function setupListeners() {
     if (listenersSetup) return
@@ -91,5 +94,5 @@ export function useRoom() {
     listenersSetup = false
   }
 
-  return { roomCode, players, amReady, myId, createRoom, joinRoom, ready, startNewGame, setupListeners, resetRoom }
+  return { roomCode, players, amReady, myId, createRoom, joinRoom, ready, startNewGame, addAI, fillAI, removeAI, setupListeners, resetRoom }
 }

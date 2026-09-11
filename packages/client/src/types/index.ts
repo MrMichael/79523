@@ -9,6 +9,7 @@ export interface PlayerInfo {
   isHost?: boolean
   wins?: number
   boxerWins?: number
+  isAI?: boolean
 }
 
 export interface UIGameState {

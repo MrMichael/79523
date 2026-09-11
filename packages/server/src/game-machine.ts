@@ -77,7 +77,10 @@ export function handlePlay(
     game.isFirstTrick = false
   }
 
-  player.hand = player.hand.filter(c => !playerCards.some(pc => pc.suit === c.suit && pc.rank === c.rank))
+  // Remove exactly one physical card per played card (2 decks → suit+rank may repeat).
+  for (const pc of playerCards) {
+    player.hand = removeCardFromHand(player.hand, pc)
+  }
 
   const wasBeating = game.bestPlayerId !== null
 
