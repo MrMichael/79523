@@ -1,4 +1,4 @@
-import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap } from '../game-machine'
+import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal } from '../game-machine'
 import { identify, beats, getSmallestCard, compareCards, Rank, BoxerMove, resolveRound, getWinner, calculateScore } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
@@ -83,6 +83,7 @@ interface GameResult {
   playedScore?: number
   boxerScore?: number
   expectedTotal?: number
+  conservation?: { total: number; expected: number }
 }
 
 function simulateOneGame(playerIds: string[], leadPlayerId?: string, isFirstGame = true): GameResult {
@@ -137,6 +138,8 @@ function simulateOneGame(playerIds: string[], leadPlayerId?: string, isFirstGame
   if (!game.gameOver) return { success: false, error: 'Game did not end', rounds, boxerRounds: 0 }
 
   const settlement = settleGame(game)
+  // Deterministic invariant: played + still-in-hand + still-in-deck == 100/200.
+  const conservation = verifyScoreTotal(game)
 
   // ── Boxer flow ──
   const scoreCards = getBoxerScoreCards(game)
@@ -179,7 +182,7 @@ function simulateOneGame(playerIds: string[], leadPlayerId?: string, isFirstGame
   // Boxer score cards were already removed from hands and their points go to boxer winner
   // The settlement scores include all points: round scores + boxer scores
 
-  return { success: true, rounds, settlement, boxerRounds, totalScore, expectedTotal }
+  return { success: true, rounds, settlement, boxerRounds, totalScore, expectedTotal, conservation: { total: conservation.total, expected: conservation.expected } }
 }
 
 // ── Multi-game session ──
@@ -325,15 +328,13 @@ describe('Multi-Game Session Simulation (拳王 + 积分榜 + 交粮)', () => {
         expect(getBoxerScoreCards(game).length).toBeGreaterThanOrEqual(0)
       })
 
-      test(`总分验证: ~${players < 4 ? 100 : 200}分 (AI公差±15%)`, () => {
+      test(`总分守恒: ~${players < 4 ? 100 : 200}分 (played+hand+deck == 总分)`, () => {
         for (let i = 0; i < 5; i++) {
           const ids = Array.from({ length: players }, (_, i) => `p${i + 1}`)
           const result = simulateOneGame(ids)
           expect(result.success).toBe(true)
-          const expected = result.expectedTotal!
-          const margin = expected * 0.35
-          expect(result.totalScore).toBeGreaterThanOrEqual(expected - margin)
-          expect(result.totalScore).toBeLessThanOrEqual(expected + margin)
+          expect(result.conservation!.total).toBe(result.conservation!.expected)
+          expect(result.conservation!.expected).toBe(players < 4 ? 100 : 200)
         }
       })
     })
