@@ -3,7 +3,7 @@ import type { Server as HttpServer } from 'http'
 import type { AddressInfo } from 'net'
 import { io as ioc } from 'socket.io-client'
 import type { Socket } from 'socket.io-client'
-import { getSmallestCard } from '@79523/engine'
+import { getSmallestCard, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import { setupWebSocket } from '../ws'
 
@@ -196,4 +196,66 @@ describe('WebSocket integration', () => {
       delete process.env.BOT_DELAY_MS
     }
   }, 15000)
+
+  test('host + 3 AI: full game auto-resolves (boxer + surrender)', async () => {
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', { name: 'H', maxPlayers: 4 })
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const filled = waitFor<any>(host, 'players_updated')
+      host.emit('fill_ai')
+      await filled
+
+      // Drive the lone human so the table keeps moving (lead smallest / otherwise pass).
+      let hostHand: Card[] = []
+      let tableEmpty = true
+      host.on('game_started', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('draw_card', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('play_made', () => { tableEmpty = false })
+      host.on('round_result', () => { tableEmpty = true })
+      host.on('boxer_start', () => host.emit('boxer_move', { move: 'rock' }))
+      host.on('surrender_start', (d: any) => {
+        if (d.yourRole === 'loser') {
+          host.emit('surrender_give', { card: chooseSurrenderGive(d.hand) })
+        } else if (d.yourRole === 'winner') {
+          if (d.phase === 'winners_pick' && d.surrenderedCards?.length) {
+            host.emit('surrender_pick', { card: chooseSurrenderPick(d.surrenderedCards.map((s: any) => s.card)) })
+          } else if (d.phase === 'winners_return') {
+            host.emit('surrender_return', { card: chooseSurrenderReturn(d.hand) })
+          }
+        }
+      })
+      host.on('your_turn', (d: any) => {
+        if (d.hand) hostHand = d.hand
+        const smallest = getSmallestCard(hostHand)
+        if (tableEmpty && smallest) host.emit('play', { cards: [smallest] })
+        else host.emit('pass')
+      })
+
+      const started = waitFor<any>(host, 'game_started')
+      host.emit('ready')
+      await started
+
+      const gameOver = await waitFor<any>(host, 'game_over', 30000)
+      expect(gameOver.scores).toHaveLength(4)
+
+      // Boxer + ranking tiebreaks must resolve without any human input.
+      await waitFor<any>(host, 'next_game_lead', 20000)
+
+      // Next game: surrender (交粮) must auto-complete and play must resume.
+      host.emit('start_new_game')
+      const resumed = Promise.race([
+        waitFor<any>(host, 'surrender_swap', 10000),
+        waitFor<any>(host, 'play_made', 10000),
+        waitFor<any>(host, 'your_turn', 10000),
+      ])
+      host.emit('ready')
+      expect(await resumed).toBeTruthy()
+    } finally {
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+    }
+  }, 60000)
 })

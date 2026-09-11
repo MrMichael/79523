@@ -4,7 +4,7 @@ import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, createAIPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
-import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay } from '@79523/engine'
+import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
 import type { Room } from './types'
@@ -45,6 +45,7 @@ function startBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Room[
     gameScores,
     boxerWins,
   })
+  scheduleBotBoxer(io, roomCode, game)
 }
 
 function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
@@ -98,7 +99,8 @@ function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Roo
           participants: [...survivors],
         })
       }
-    }, 2000)
+      scheduleBotBoxer(io, roomCode, game)
+    }, flowDelayMs())
   }
 }
 
@@ -116,6 +118,45 @@ function maybeResolveBoxer(io: WsServer, roomCode: string, game: NonNullable<Roo
   }
   if (bs.scoreCards.length === 0) resolveBoxerTiebreakRound(io, roomCode, game)
   else processBoxerRound(io, roomCode, game)
+}
+
+/** Schedule random moves for AI boxer survivors that haven't submitted yet. */
+function scheduleBotBoxer(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
+  const bs = game.boxerState
+  if (!bs) return
+  const room = getRoom(roomCode)
+  for (const id of bs.currentSurvivors) {
+    const rp = room?.players.find(p => p.id === id)
+    if (!rp?.isAI || bs.currentMoves.has(id)) continue
+    setTimeout(() => {
+      const cur = game.boxerState
+      if (cur !== bs) return
+      if (!cur.currentSurvivors.includes(id) || cur.currentMoves.has(id)) return
+      cur.currentMoves.set(id, chooseBoxerMove())
+      maybeResolveBoxer(io, roomCode, game)
+    }, botDelayMs())
+  }
+}
+
+/** Auto-act for an AI surrender actor (give largest / pick best / return smallest). */
+function scheduleBotSurrender(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room) {
+  const ss = room.surrenderState
+  if (!ss) return
+  const actorId = ss.phase === 'losers_give' ? ss.loserIds[ss.currentPairIndex] : ss.winnerIds[ss.currentPairIndex]
+  const actor = room.players.find(p => p.id === actorId)
+  if (!actor?.isAI) return
+  setTimeout(() => {
+    if (room.surrenderState !== ss) return
+    const gp = game.players.find(p => p.id === actorId)
+    if (!gp) return
+    if (ss.phase === 'losers_give') {
+      processSurrenderGive(io, roomCode, actorId, chooseSurrenderGive(gp.hand), room, game)
+    } else if (ss.phase === 'winners_pick' && ss.surrenderedCards.length > 0) {
+      processSurrenderPick(io, roomCode, actorId, chooseSurrenderPick(ss.surrenderedCards.map(sc => sc.card)), room, game)
+    } else if (ss.phase === 'winners_return' && gp.hand.length > 0) {
+      processSurrenderReturn(io, roomCode, actorId, chooseSurrenderReturn(gp.hand), room, game)
+    }
+  }, botDelayMs())
 }
 
 function resolveBoxerChampion(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
@@ -138,7 +179,7 @@ function resolveBoxerChampion(io: WsServer, roomCode: string, game: NonNullable<
       currentSurvivors: champions.map(p => p.id),
       currentMoves: new Map(), round: 0,
     }
-    setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), 2000)
+    setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), flowDelayMs())
     return
   }
 
@@ -171,7 +212,7 @@ function resolveScoreRankings(io: WsServer, roomCode: string, game: NonNullable<
     currentMoves: new Map(), round: 0,
     tieGroupIndex: startGroupIdx,
   }
-  setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), 2000)
+  setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), flowDelayMs())
 }
 
 function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
@@ -207,6 +248,7 @@ function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullab
       })
     }
   }
+  scheduleBotBoxer(io, roomCode, game)
 }
 
 /** Resolve tiebreaker round: first player to win becomes champion */
@@ -245,7 +287,7 @@ function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNull
     setTimeout(() => {
       const nextIdx = bs.tieGroupIndex !== undefined ? bs.tieGroupIndex + 1 : 0
       resolveScoreRankings(io, roomCode, game, nextIdx)
-    }, 2000)
+    }, flowDelayMs())
   } else {
     const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
     for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
@@ -262,7 +304,8 @@ function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNull
           participants: [...survivors],
         })
       }
-    }, 2000)
+      scheduleBotBoxer(io, roomCode, game)
+    }, flowDelayMs())
   }
 }
 
@@ -300,7 +343,7 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
     setTimeout(() => {
       io.to(roomCode).emit('next_game_lead', { playerId: '' })
     }, 3000)
-  }, 2000)
+  }, flowDelayMs())
 }
 
 // ── Helper: emit game_started + your_turn ──
@@ -376,6 +419,7 @@ function sendSurrenderPrompt(io: WsServer, roomCode: string, game: NonNullable<R
   const ss = room.surrenderState!
   log('SURRENDER_PROMPT', roomCode, `phase=${ss.phase} pair=${ss.currentPairIndex}`)
   resetSurrenderTimer(io, roomCode, game, room)
+  scheduleBotSurrender(io, roomCode, game, room)
   const gp = (id: string) => game.players.find(p => p.id === id)!
 
   if (ss.phase === 'losers_give') {
@@ -683,6 +727,10 @@ function advanceTurnAndPrompt(io: WsServer, roomCode: string, game: NonNullable<
 
 function botDelayMs(): number {
   return Number(process.env.BOT_DELAY_MS) || 700
+}
+
+function flowDelayMs(): number {
+  return Number(process.env.FLOW_DELAY_MS) || 2000
 }
 
 /** Route a turn to a human (your_turn) or an AI (scheduled bot action). */
