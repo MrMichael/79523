@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
-import { createPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
+import { createPlayer, createAIPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify } from '@79523/engine'
@@ -13,7 +13,7 @@ import type { Room } from './types'
 type WsServer = Server<ClientEvents, ServerEvents>
 
 function serializePlayers(players: Room['players']) {
-  return players.map(p => ({ id: p.id, name: p.name, ready: p.ready, connected: p.connected, isHost: p.isHost, wins: p.wins, boxerWins: p.boxerWins }))
+  return players.map(p => ({ id: p.id, name: p.name, ready: p.ready, connected: p.connected, isHost: p.isHost, wins: p.wins, boxerWins: p.boxerWins, isAI: !!p.isAI }))
 }
 
 /** Emit draw_card to all non-finished players after a round ends */
@@ -21,7 +21,7 @@ function emitDrawCards(io: WsServer, roomCode: string, game: NonNullable<Room['g
   for (const gp of game.players) {
     if (!gp.finished) {
       const p = room.players.find(rp => rp.id === gp.id)
-      if (p) io.to(p.socketId).emit('draw_card', { hand: gp.hand, deckCount: game.deck.length })
+      if (p && !p.isAI) io.to(p.socketId).emit('draw_card', { hand: gp.hand, deckCount: game.deck.length })
     }
   }
 }
@@ -797,7 +797,7 @@ function startBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room['
 // ── Reset ready states for new game ──
 
 function resetRoomForNewGame(room: Room) {
-  for (const p of room.players) resetPlayerReady(p.id)
+  for (const p of room.players) if (!p.isAI) resetPlayerReady(p.id)
   room.game = null
   room.surrenderState = null
   if ((room as any).__surrenderTimer) {
@@ -816,6 +816,7 @@ export function setupWebSocket(httpServer: HttpServer) {
     // Helper: sync player socketId before sending individual events
     function syncPlayerSockets(room: Room) {
       for (const player of room.players) {
+        if (player.isAI) continue
         let found = false
         for (const [sid, sock] of io.sockets.sockets) {
           if (sock.data.playerId === player.id) {
@@ -918,6 +919,41 @@ export function setupWebSocket(httpServer: HttpServer) {
       if (!host?.isHost) { socket.emit('error', { message: 'Only the room host can start a new game' }); return }
       resetRoomForNewGame(room)
       io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room.players) })
+    })
+
+    // ── AI players (host only, waiting phase) ──
+
+    function manageAIRoom(socket: any): Room | null {
+      const room = currentRoomCode ? getRoom(currentRoomCode) : undefined
+      if (!room) { socket.emit('error', { message: 'Room not found' }); return null }
+      const host = room.players.find(p => p.id === currentPlayerId)
+      if (!host?.isHost) { socket.emit('error', { message: 'Only the host can manage AI' }); return null }
+      if (room.game) { socket.emit('error', { message: 'Game already started' }); return null }
+      return room
+    }
+
+    socket.on('add_ai', () => {
+      const room = manageAIRoom(socket)
+      if (!room) return
+      if (room.players.length >= room.maxPlayers) { socket.emit('error', { message: 'Room is full' }); return }
+      joinRoom(room.code, createAIPlayer(room.code))
+      io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
+    })
+
+    socket.on('fill_ai', () => {
+      const room = manageAIRoom(socket)
+      if (!room) return
+      while (room.players.length < room.maxPlayers) joinRoom(room.code, createAIPlayer(room.code))
+      io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
+    })
+
+    socket.on('remove_ai', ({ playerId }) => {
+      const room = manageAIRoom(socket)
+      if (!room) return
+      const target = room.players.find(p => p.id === playerId)
+      if (!target?.isAI) { socket.emit('error', { message: 'Target is not an AI player' }); return }
+      leaveRoom(room.code, playerId)
+      io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
     })
 
     // ── Surrender events ──

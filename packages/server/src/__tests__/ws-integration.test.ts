@@ -115,4 +115,48 @@ describe('WebSocket integration', () => {
       delete process.env.DISCONNECT_KICK_MS
     }
   }, 15000)
+
+  test('host can add / fill / remove AI; non-host and in-game attempts are rejected', async () => {
+    const host = await connectClient()
+    host.emit('create_room', { name: 'H', maxPlayers: 5 })
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+
+    const guest = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    guest.emit('join_room', { roomCode, playerName: 'G' })
+    await joined
+
+    // add one AI
+    const afterAdd = waitFor<any>(host, 'players_updated')
+    host.emit('add_ai')
+    let list = (await afterAdd).players
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(1)
+    expect(list.find((p: any) => p.isAI).name).toMatch(/^电脑/)
+
+    // fill the rest
+    const afterFill = waitFor<any>(host, 'players_updated')
+    host.emit('fill_ai')
+    list = (await afterFill).players
+    expect(list).toHaveLength(5)
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(3)
+
+    // non-host cannot add
+    const guestErr = waitFor<any>(guest, 'error')
+    guest.emit('add_ai')
+    expect((await guestErr).message).toMatch(/host/i)
+
+    // remove one AI
+    const aiId = list.find((p: any) => p.isAI).id
+    const afterRemove = waitFor<any>(host, 'players_updated')
+    host.emit('remove_ai', { playerId: aiId })
+    list = (await afterRemove).players
+    expect(list.find((p: any) => p.id === aiId)).toBeUndefined()
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(2)
+
+    // removing a human is rejected
+    const humanId = list.find((p: any) => !p.isAI && p.name === 'G').id
+    const hostErr = waitFor<any>(host, 'error')
+    host.emit('remove_ai', { playerId: humanId })
+    expect((await hostErr).message).toMatch(/AI/i)
+  }, 15000)
 })

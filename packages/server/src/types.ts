@@ -9,6 +9,7 @@ export interface Player {
   isHost: boolean
   wins: number
   boxerWins: number
+  isAI?: boolean
 }
 
 export interface Room {
@@ -71,9 +72,9 @@ export interface GamePlayer {
 
 export interface ServerEvents {
   room_created: (data: { roomCode: string }) => void
-  player_joined: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number }[] }) => void
-  player_left: (data: { playerId: string; players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number }[] }) => void
-  players_updated: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number }[] }) => void
+  player_joined: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
+  player_left: (data: { playerId: string; players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
+  players_updated: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
   game_started: (data: { hand: Card[]; players: GamePlayer[]; leadPlayerId: string; playerNames: Record<string, string>; myId: string; deckCount: number }) => void
   your_turn: (data: { timeout: number; hand: Card[]; deckCount: number; tableCards?: Card[] }) => void
   play_made: (data: { playerId: string; nextPlayerId: string; play: { type: string; cards: Card[] }; tableCards: Card[] }) => void
@@ -103,6 +104,9 @@ export interface ClientEvents {
   create_room: (data: { name: string; maxPlayers: number }) => void
   join_room: (data: { roomCode: string; playerName: string }) => void
   ready: () => void
+  add_ai: () => void
+  fill_ai: () => void
+  remove_ai: (data: { playerId: string }) => void
   play: (data: { cards: Card[] }) => void
   pass: () => void
   boxer_move: (data: { move: BoxerMove }) => void
