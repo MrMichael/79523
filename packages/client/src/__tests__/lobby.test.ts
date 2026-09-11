@@ -12,6 +12,7 @@ vi.mock('../composables/useSocket', () => ({
 
 import { mount } from '@vue/test-utils'
 import RoomList from '../components/lobby/RoomList.vue'
+import UserList from '../components/lobby/UserList.vue'
 
 describe('RoomList', () => {
   beforeEach(() => { setActivePinia(createPinia()) })
@@ -36,5 +37,20 @@ describe('RoomList', () => {
     })
     await w.find('.room-item button').trigger('click')
     expect(w.emitted('join')?.[0]).toEqual(['A1'])
+  })
+})
+
+describe('UserList', () => {
+  it('sorts online users first', () => {
+    const w = mount(UserList, {
+      props: {
+        users: [
+          { id: '1', username: 'b', role: 'user', wins: 0, boxerWins: 0, online: false },
+          { id: '2', username: 'a', role: 'user', wins: 0, boxerWins: 0, online: true },
+        ],
+      },
+    })
+    const names = w.findAll('.user-item .name').map(n => n.text())
+    expect(names).toEqual(['a', 'b'])
   })
 })

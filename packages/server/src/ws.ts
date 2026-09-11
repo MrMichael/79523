@@ -982,6 +982,7 @@ export function setupWebSocket(httpServer: HttpServer) {
     let currentPlayerId: string | null = me.id
     let currentRoomCode: string | null = null
     markOnline(me.id, socket.id)
+    broadcastLobby()
 
     socket.on('create_room', () => {
       const room = createRoom(6)

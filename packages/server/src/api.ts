@@ -5,7 +5,7 @@ import { requireAuth, requireAdmin } from './middleware'
 import type { AuthedRequest } from './middleware'
 import { listUsers, findUserById, deleteUser, setRole, resetStats, countAdmins, leaderboard } from './db'
 import type { Role } from './db'
-import { kickUser, kickUserEverywhere } from './online'
+import { kickUser, kickUserEverywhere, isOnline } from './online'
 
 const router: Router = Router()
 
@@ -40,12 +40,12 @@ router.delete('/auth/me', requireAuth, (req: AuthedRequest, res) => {
 
 // ── lobby ──
 router.get('/users', requireAuth, (_req, res) => {
-  res.json(listUsers().map(u => publicUser(u)))
+  res.json(listUsers().map(u => publicUser(u, isOnline(u.id))))
 })
 
 router.get('/leaderboard', requireAuth, (req, res) => {
   const metric = req.query.metric === 'boxerWins' ? 'boxerWins' : 'wins'
-  res.json(leaderboard(metric).map(u => publicUser(u)))
+  res.json(leaderboard(metric).map(u => publicUser(u, isOnline(u.id))))
 })
 
 router.get('/rooms', requireAuth, (_req, res) => {

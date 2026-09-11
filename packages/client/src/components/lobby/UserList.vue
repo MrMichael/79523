@@ -1,6 +1,6 @@
 <template>
   <div class="user-list">
-    <div v-for="u in users" :key="u.id" class="user-item">
+    <div v-for="u in sorted" :key="u.id" class="user-item">
       <span class="dot" :class="{ online: u.online }"></span>
       <span class="name">{{ u.username }}</span>
       <span class="role" v-if="u.role === 'admin'">管理员</span>
@@ -11,7 +11,10 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean }[] }>()
+import { computed } from 'vue'
+const props = defineProps<{ users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean }[] }>()
+// Online users first, then by username.
+const sorted = computed(() => [...props.users].sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username)))
 </script>
 
 <style scoped>

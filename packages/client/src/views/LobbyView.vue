@@ -75,16 +75,19 @@ function onRoomCreated(d: any) { router.push(`/room/${d.roomCode}`) }
 function onPlayerJoined() { if (pendingJoin) router.push(`/room/${pendingJoin}`) }
 function onLobbyUsers(d: any) { users.value = d.users }
 function onLobbyRooms(d: any) { rooms.value = d.rooms }
+function onSocketConnect() { refreshUsers().catch(() => {}); refreshRooms().catch(() => {}) }
 
 onMounted(async () => {
   connect()
-  await auth.loadMe()
-  if (!auth.isLoggedIn) { router.push('/login'); return }
-  try { await Promise.all([refreshUsers(), refreshRooms()]) } catch { /* apiFetch redirects on 401 */ }
+  // Attach lobby listeners immediately so we don't miss the on-connect broadcast.
   socket.value?.on('lobby_users_updated', onLobbyUsers)
   socket.value?.on('lobby_rooms_updated', onLobbyRooms)
   socket.value?.on('room_created', onRoomCreated)
   socket.value?.on('player_joined', onPlayerJoined)
+  socket.value?.on('connect', onSocketConnect)
+  await auth.loadMe()
+  if (!auth.isLoggedIn) { router.push('/login'); return }
+  try { await Promise.all([refreshUsers(), refreshRooms()]) } catch { /* apiFetch redirects on 401 */ }
 })
 
 onUnmounted(() => {
@@ -92,6 +95,7 @@ onUnmounted(() => {
   socket.value?.off('lobby_rooms_updated', onLobbyRooms)
   socket.value?.off('room_created', onRoomCreated)
   socket.value?.off('player_joined', onPlayerJoined)
+  socket.value?.off('connect', onSocketConnect)
 })
 </script>
 

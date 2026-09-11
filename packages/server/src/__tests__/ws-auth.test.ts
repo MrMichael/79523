@@ -45,4 +45,17 @@ describe('socket auth', () => {
     expect(roomCode).toMatch(/^[A-Z0-9]{6}$/)
     s.disconnect()
   })
+
+  test('connecting broadcasts lobby_users_updated with the user online', async () => {
+    const u = registerUser('onlineuser', 'secret123')
+    const s = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(u) } })
+    // Attach before the handshake completes so we don't miss the on-connect broadcast.
+    const lobbyP = waitFor<any>(s, 'lobby_users_updated')
+    await waitFor(s, 'connect')
+    const lobby = await lobbyP
+    const me = lobby.users.find((x: any) => x.id === u.id)
+    expect(me).toBeDefined()
+    expect(me.online).toBe(true)
+    s.disconnect()
+  })
 })
