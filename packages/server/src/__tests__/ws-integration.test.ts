@@ -66,8 +66,7 @@ async function startTwoPlayerGame() {
 
   const hostStart = waitFor<any>(host, 'game_started')
   const guestStart = waitFor<any>(guest, 'game_started')
-  host.emit('ready')
-  guest.emit('ready')
+  host.emit('start_game')
   const [hs, gs] = await Promise.all([hostStart, guestStart])
 
   const leadSocket = hs.myId === hs.leadPlayerId ? host : guest
@@ -188,7 +187,7 @@ describe('WebSocket integration', () => {
       })
 
       const started = waitFor<any>(host, 'game_started')
-      host.emit('ready')
+      host.emit('start_game')
       const gs = await started
       hostHand = gs.hand
       const myId = gs.myId
@@ -248,7 +247,7 @@ describe('WebSocket integration', () => {
       })
 
       const started = waitFor<any>(host, 'game_started')
-      host.emit('ready')
+      host.emit('start_game')
       await started
 
       const gameOver = await waitFor<any>(host, 'game_over', 30000)
@@ -258,13 +257,12 @@ describe('WebSocket integration', () => {
       await waitFor<any>(host, 'next_game_lead', 20000)
 
       // Next game: surrender (交粮) must auto-complete and play must resume.
-      host.emit('start_new_game')
       const resumed = Promise.race([
         waitFor<any>(host, 'surrender_swap', 10000).catch(() => null),
         waitFor<any>(host, 'play_made', 10000).catch(() => null),
         waitFor<any>(host, 'your_turn', 10000).catch(() => null),
       ])
-      host.emit('ready')
+      host.emit('start_game')
       expect(await resumed).toBeTruthy()
     } finally {
       delete process.env.BOT_DELAY_MS

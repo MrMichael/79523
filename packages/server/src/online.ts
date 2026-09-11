@@ -5,6 +5,7 @@ let ioRef: Server<ClientEvents, ServerEvents> | null = null
 const socketsByUser = new Map<string, Set<string>>()
 
 export function bindOnline(io: Server<ClientEvents, ServerEvents>) { ioRef = io }
+export function getIO(): Server<ClientEvents, ServerEvents> | null { return ioRef }
 export function isOnline(userId: string): boolean { return (socketsByUser.get(userId)?.size ?? 0) > 0 }
 
 export function markOnline(userId: string, socketId: string) {

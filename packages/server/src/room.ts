@@ -7,7 +7,7 @@ const rooms = new Map<string, Room>()
 export function createRoom(maxPlayers: number): Room {
   let code: string
   do { code = generateRoomCode() } while (rooms.has(code))
-  const room: Room = { code, maxPlayers, players: [], createdAt: Date.now(), game: null }
+  const room: Room = { code, maxPlayers, players: [], createdAt: Date.now(), game: null, emptiedAt: 0 }
   rooms.set(code, room)
   return room
 }
@@ -29,7 +29,8 @@ export function leaveRoom(code: string, playerId: string): Room | null {
   if (!room) return null
   room.players = room.players.filter(p => p.id !== playerId)
   removePlayer(playerId)
-  if (room.players.length === 0) { rooms.delete(code); return null }
+  // Retain the room for a grace period; cleaned after 10 minutes of having no humans.
+  if (!room.players.some(p => !p.isAI)) room.emptiedAt = Date.now()
   return room
 }
 
@@ -39,11 +40,9 @@ export function setRoomGame(code: string, game: Room['game']): void {
   if (room) room.game = game
 }
 
-export function cleanupStaleRooms(): void {
-  const now = Date.now()
+export function cleanupStaleRooms(now: number = Date.now()): void {
   for (const [code, room] of rooms) {
-    if (room.players.length === 0 && now - room.createdAt > 10 * 60 * 1000) {
-      rooms.delete(code)
-    }
+    const empty = !room.players.some(p => !p.isAI)
+    if (empty && room.emptiedAt && now - room.emptiedAt > 10 * 60 * 1000) rooms.delete(code)
   }
 }

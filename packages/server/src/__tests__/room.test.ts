@@ -81,12 +81,13 @@ describe('Room operations', () => {
         expect(room.players.find(p => p.id === 'p1')).toBeUndefined()
       })
 
-      test(`last player leaves ${n}p room → room destroyed`, () => {
+      test(`last player leaves ${n}p room → retained with emptiedAt`, () => {
         const room = createRoom(n)
         joinRoom(room.code, makePlayer('p1'))
         const result = leaveRoom(room.code, 'p1')
-        expect(result).toBeNull()
-        expect(getRoom(room.code)).toBeUndefined()
+        expect(result).toBe(room)
+        expect(getRoom(room.code)).toBe(room)
+        expect(getRoom(room.code)!.emptiedAt).toBeGreaterThan(0)
       })
     }
 
@@ -130,22 +131,22 @@ describe('Room operations', () => {
   })
 
   describe('cleanupStaleRooms', () => {
-    test('removes empty old rooms', () => {
+    test('removes empty rooms past retention', () => {
       const room = createRoom(4)
-      ;(room as any).createdAt = Date.now() - 11 * 60 * 1000 // 11 min ago
+      room.emptiedAt = Date.now() - 11 * 60 * 1000 // 11 min ago
       cleanupStaleRooms()
       expect(getRoom(room.code)).toBeUndefined()
     })
 
-    test('keeps occupied old rooms', () => {
+    test('keeps occupied rooms', () => {
       const room = createRoom(4)
       joinRoom(room.code, makePlayer('p1'))
-      ;(room as any).createdAt = Date.now() - 11 * 60 * 1000
+      room.emptiedAt = Date.now() - 11 * 60 * 1000
       cleanupStaleRooms()
       expect(getRoom(room.code)).toBe(room)
     })
 
-    test('keeps empty new rooms', () => {
+    test('keeps newly emptied rooms', () => {
       const room = createRoom(4)
       cleanupStaleRooms()
       expect(getRoom(room.code)).toBe(room)

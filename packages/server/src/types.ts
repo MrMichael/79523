@@ -19,6 +19,7 @@ export interface Room {
   createdAt: number
   game: ServerGame | null
   hostId?: string
+  emptiedAt?: number  // last time the room had no human players (for 10-min cleanup)
   nextLeadPlayerId?: string  // From surrender swap, for next game's first trick (Design §4.2)
   surrenderState?: SurrenderState | null
   pendingSurrender?: { winnerIds: string[]; loserIds: string[] }
@@ -99,12 +100,14 @@ export interface ServerEvents {
   room_stats_updated: (data: { stats: { id: string; name: string; wins: number; boxerWins: number }[] }) => void
   boxer_champion: (data: { playerId: string; scores: { id: string; score: number }[] }) => void
   boxer_tiebreak: (data: { participants: string[]; info: string; wins?: number }) => void
+  lobby_users_updated: (data: { users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean }[] }) => void
+  lobby_rooms_updated: (data: { rooms: { code: string; hostId?: string; playerCount: number; maxPlayers: number; inGame: boolean }[] }) => void
 }
 
 export interface ClientEvents {
-  create_room: (data: { name: string; maxPlayers: number }) => void
-  join_room: (data: { roomCode: string; playerName: string }) => void
-  ready: () => void
+  create_room: () => void
+  join_room: (data: { roomCode: string }) => void
+  start_game: () => void
   add_ai: () => void
   fill_ai: () => void
   remove_ai: (data: { playerId: string }) => void
@@ -112,8 +115,7 @@ export interface ClientEvents {
   pass: () => void
   boxer_move: (data: { move: BoxerMove }) => void
   leave_room: () => void
-  reconnect: (data: { roomCode: string; playerId: string }) => void
-  start_new_game: () => void
+  reconnect: (data: { roomCode: string }) => void
   surrender_give: (data: { card: Card }) => void      // loser gives largest card
   surrender_pick: (data: { card: Card }) => void      // winner picks from surrendered
   surrender_return: (data: { card: Card }) => void    // winner returns a card

@@ -8,6 +8,7 @@ import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, 
 import { verifyToken } from './auth'
 import { findUserById } from './db'
 import { bindOnline, markOnline, markOffline } from './online'
+import { broadcastLobby } from './lobby'
 import type { Card } from '@79523/engine'
 
 import type { Room } from './types'
@@ -331,6 +332,10 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
     winnerIds: pc < 4 ? [sorted[0].id] : sorted.slice(0, 2).map(p => p.id),
     loserIds: pc < 4 ? [sorted[sorted.length - 1].id] : sorted.slice(-2).map(p => p.id),
   }
+
+  // Game is finished — allow the next start_game and reflect it in the lobby.
+  room.game = null
+  broadcastLobby()
 
   // Timing: boxer end → 2s → settlement → 3s → leaderboard
   setTimeout(() => {
@@ -895,14 +900,63 @@ function startBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room['
 
 // ── Reset ready states for new game ──
 
-function resetRoomForNewGame(room: Room) {
-  for (const p of room.players) if (!p.isAI) resetPlayerReady(p.id)
-  room.game = null
-  room.surrenderState = null
-  if ((room as any).__surrenderTimer) {
-    clearTimeout((room as any).__surrenderTimer)
-    ;(room as any).__surrenderTimer = null
+/** Sync each player's socketId with the live socket registry. */
+function syncPlayerSockets(io: WsServer, room: Room) {
+  for (const player of room.players) {
+    if (player.isAI) continue
+    let found = false
+    for (const [sid, sock] of io.sockets.sockets) {
+      if (sock.data.playerId === player.id) { player.socketId = sid; found = true; break }
+    }
+    if (!found) console.log(`[SYNC] player ${player.id} (${player.name}) socket NOT FOUND among ${io.sockets.sockets.size} sockets`)
   }
+}
+
+/** Start (or restart) a game for a room. Any room member may trigger it. */
+function startRoom(io: WsServer, room: Room) {
+  log('GAME_START', room.code, `players=${room.players.length} surrender=${!!room.pendingSurrender}`)
+  syncPlayerSockets(io, room)
+  const isFirstGame = !room.pendingSurrender
+  const game = initGame(room.players.map(p => p.id), room.nextLeadPlayerId, isFirstGame)
+  room.game = game
+  delete room.nextLeadPlayerId
+
+  if (room.pendingSurrender) {
+    log('SURRENDER_INIT', room.code, `winners=${room.pendingSurrender.winnerIds.join(',')} losers=${room.pendingSurrender.loserIds.join(',')}`)
+    const ps = room.pendingSurrender
+    delete room.pendingSurrender
+    const playerNames: Record<string, string> = {}
+    for (const p of room.players) playerNames[p.id] = p.name
+    for (const player of room.players) {
+      const gp = game.players.find(p => p.id === player.id)!
+      io.to(player.socketId).emit('game_started', {
+        hand: gp.hand,
+        players: game.players.map(p => {
+          const rp = room.players.find(r => r.id === p.id)
+          return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0 }
+        }),
+        leadPlayerId: '',
+        playerNames,
+        myId: player.id,
+        deckCount: game.deck.length,
+      })
+    }
+    setTimeout(() => {
+      room.surrenderState = {
+        phase: 'losers_give',
+        sortedPlayerIds: [],
+        winnerIds: ps.winnerIds,
+        loserIds: ps.loserIds,
+        currentPairIndex: 0,
+        surrenderedCards: [],
+        swaps: [],
+      }
+      sendSurrenderPrompt(io, room.code, game, room)
+    }, 800)
+  } else {
+    emitGameStart(io, room.code, game, room, [])
+  }
+  broadcastLobby()
 }
 
 export function setupWebSocket(httpServer: HttpServer) {
@@ -925,22 +979,6 @@ export function setupWebSocket(httpServer: HttpServer) {
     let currentRoomCode: string | null = null
     markOnline(me.id, socket.id)
 
-    // Helper: sync player socketId before sending individual events
-    function syncPlayerSockets(room: Room) {
-      for (const player of room.players) {
-        if (player.isAI) continue
-        let found = false
-        for (const [sid, sock] of io.sockets.sockets) {
-          if (sock.data.playerId === player.id) {
-            player.socketId = sid
-            found = true
-            break
-          }
-        }
-        if (!found) console.log(`[SYNC] player ${player.id} (${player.name}) socket NOT FOUND among ${io.sockets.sockets.size} sockets`)
-      }
-    }
-
     socket.on('create_room', () => {
       const room = createRoom(6)
       room.hostId = me.id
@@ -952,6 +990,7 @@ export function setupWebSocket(httpServer: HttpServer) {
       currentPlayerId = player.id; currentRoomCode = room.code
       socket.join(room.code)
       socket.emit('room_created', { roomCode: room.code })
+      broadcastLobby()
     })
 
     socket.on('join_room', ({ roomCode }) => {
@@ -965,78 +1004,16 @@ export function setupWebSocket(httpServer: HttpServer) {
       currentPlayerId = player.id; currentRoomCode = roomCode
       socket.join(roomCode)
       io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
+      broadcastLobby()
     })
 
-    socket.on('ready', () => {
-      if (!currentPlayerId || !currentRoomCode) return
-      setPlayerReady(currentPlayerId, true)
-      const room = getRoom(currentRoomCode)
+    socket.on('start_game', () => {
+      const room = currentRoomCode ? getRoom(currentRoomCode) : undefined
       if (!room) return
-      io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room.players) })
-      if (room.players.every(p => p.ready) && room.players.length >= 2) {
-        log('GAME_START', currentRoomCode, `players=${room.players.length} surrender=${!!room.pendingSurrender}`)
-        syncPlayerSockets(room)
-        // Only the session's first game enforces the smallest-card first play (Design §4.1).
-        // A pending surrender means a previous game was completed → this is a later game.
-        const isFirstGame = !room.pendingSurrender
-        const game = initGame(room.players.map(p => p.id), room.nextLeadPlayerId, isFirstGame)
-        room.game = game
-        delete room.nextLeadPlayerId
-
-        if (room.pendingSurrender) {
-          log('SURRENDER_INIT', currentRoomCode, `winners=${room.pendingSurrender.winnerIds.join(',')} losers=${room.pendingSurrender.loserIds.join(',')}`)
-          // Emit game_started first so clients navigate to game page and mount SurrenderOverlay
-          const ps = room.pendingSurrender
-          delete room.pendingSurrender
-
-          // Temporarily announce game_started so clients can navigate
-          const playerNames: Record<string, string> = {}
-          for (const p of room.players) playerNames[p.id] = p.name
-          for (const player of room.players) {
-            const gp = game.players.find(p => p.id === player.id)!
-            io.to(player.socketId).emit('game_started', {
-              hand: gp.hand,
-              players: game.players.map(p => {
-        const rp = room.players.find(r => r.id === p.id)
-        return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0 }
-      }),
-              leadPlayerId: '',
-              playerNames,
-              myId: player.id,
-              deckCount: game.deck.length,
-            })
-          }
-          // Give clients time to mount, then start surrender
-          setTimeout(() => {
-            room.surrenderState = {
-              phase: 'losers_give',
-              sortedPlayerIds: [],
-              winnerIds: ps.winnerIds,
-              loserIds: ps.loserIds,
-              currentPairIndex: 0,
-              surrenderedCards: [],
-              swaps: [],
-            }
-            sendSurrenderPrompt(io, room.code, game, room)
-            // Timer managed by resetSurrenderTimer in sendSurrenderPrompt
-          }, 800)
-        } else {
-          // Normal start — no pending surrender (first game)
-          emitGameStart(io, currentRoomCode, game, room, [])
-        }
-      }
-    })
-
-    // ── New game (host only) ──
-
-    socket.on('start_new_game', () => {
-      if (!currentPlayerId || !currentRoomCode) return
-      const room = getRoom(currentRoomCode)
-      if (!room) return
-      const host = room.players.find(p => p.id === currentPlayerId)
-      if (!host?.isHost) { socket.emit('error', { message: 'Only the room host can start a new game' }); return }
-      resetRoomForNewGame(room)
-      io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room.players) })
+      if (!room.players.some(p => p.id === me.id)) { socket.emit('error', { message: '你不在该房间' }); return }
+      if (room.game) { socket.emit('error', { message: '对局已开始' }); return }
+      if (room.players.length < 2) { socket.emit('error', { message: '至少需要 2 名玩家' }); return }
+      startRoom(io, room)
     })
 
     // ── AI players (host only, waiting phase) ──
@@ -1148,6 +1125,7 @@ export function setupWebSocket(httpServer: HttpServer) {
 
     socket.on('disconnect', () => {
       markOffline(me.id, socket.id)
+      broadcastLobby()
       if (currentPlayerId && currentRoomCode) {
         setPlayerConnected(currentPlayerId, false)
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })
@@ -1165,6 +1143,7 @@ export function setupWebSocket(httpServer: HttpServer) {
               playerId: currentPlayerId!,
               players: updated ? serializePlayers(updated.players) : [],
             })
+            broadcastLobby()
           }
         }, kickDelayMs)
       }
