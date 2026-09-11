@@ -4,7 +4,7 @@ import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, createAIPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
-import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify } from '@79523/engine'
+import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay } from '@79523/engine'
 import type { Card } from '@79523/engine'
 
 import type { Room } from './types'
@@ -328,11 +328,7 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
       losers: swaps.map((s: any) => ({ id: s.loserId, gaveUpCard: s.gaveUpCard, receivedCard: s.receivedCard })),
     })
   }
-  const leadSocket = room.players.find(p => p.id === leadPlayerId)!
-  const leadGp = game.players.find(p => p.id === leadPlayerId)!
-  console.log(`[TURN] your_turn to ${leadPlayerId} via socket ${leadSocket.socketId} (emitGameStart)`)
-  startTurnTimer(io, roomCode, game, room, leadPlayerId)
-  io.to(leadSocket.socketId).emit('your_turn', { timeout: 30, hand: leadGp.hand, deckCount: game.deck.length })
+  promptTurn(io, roomCode, game, room, leadPlayerId)
 }
 
 // ── Surrender flow (manual) ──
@@ -370,12 +366,8 @@ function resetSurrenderTimer(io: WsServer, roomCode: string, game: NonNullable<R
       if (rp) io.to(rp.socketId).emit('draw_card', { hand: gp.hand, deckCount: game.deck.length })
     }
     const leadGp = game.players[game.currentPlayerIndex]
-    const leadPlayer = room.players.find(p => p.id === leadGp.id)
-    if (leadPlayer) {
-      room.surrenderState = null
-      startTurnTimer(io, roomCode, game, room, leadGp.id)
-      io.to(leadPlayer.socketId).emit('your_turn', { timeout: 30, hand: leadGp.hand, deckCount: game.deck.length })
-    }
+    room.surrenderState = null
+    promptTurn(io, roomCode, game, room, leadGp.id)
   }, SURRENDER_TIMEOUT)
   ;(room as any).__surrenderTimer = timer
 }
@@ -582,9 +574,7 @@ function processSurrenderReturn(io: WsServer, roomCode: string, playerId: string
       io.to(rp.socketId).emit('draw_card', { hand: gp.hand, deckCount: game.deck.length })
     }
     const leadGp = game.players[game.currentPlayerIndex]
-    const leadSocket = room.players[game.currentPlayerIndex]
-    startTurnTimer(io, roomCode, game, room, leadGp.id)
-    io.to(leadSocket.socketId).emit('your_turn', { timeout: 30, hand: leadGp.hand, deckCount: game.deck.length })
+    promptTurn(io, roomCode, game, room, leadGp.id)
   }
 }
 
@@ -635,10 +625,7 @@ function startTurnTimer(io: WsServer, roomCode: string, game: NonNullable<Room['
           for (let i = 0; i < game.players.length && game.players[game.currentPlayerIndex]?.finished; i++)
             game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length
           const nextGp = game.players[game.currentPlayerIndex]
-          const rp2 = room.players.find(p => p.id === nextGp.id)
-          if (!rp2) { room.surrenderState = null; return }
-          startTurnTimer(io, roomCode, game, room, nextGp.id)
-          io.to(rp2.socketId).emit('your_turn', { timeout: 30, hand: nextGp.hand, deckCount: game.deck.length })
+          promptTurn(io, roomCode, game, room, nextGp.id)
         }
       }
     }
@@ -691,10 +678,35 @@ function advanceTurnAndPrompt(io: WsServer, roomCode: string, game: NonNullable<
     game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length
   }
   const nextGp = game.players[game.currentPlayerIndex]
-  const rp = room.players.find(p => p.id === nextGp.id)
-  if (!rp) { room.surrenderState = null; return }
-  startTurnTimer(io, roomCode, game, room, nextGp.id)
-  io.to(rp.socketId).emit('your_turn', { timeout: 30, hand: nextGp.hand, deckCount: game.deck.length })
+  promptTurn(io, roomCode, game, room, nextGp.id)
+}
+
+function botDelayMs(): number {
+  return Number(process.env.BOT_DELAY_MS) || 700
+}
+
+/** Route a turn to a human (your_turn) or an AI (scheduled bot action). */
+function promptTurn(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string, extra: Record<string, unknown> = {}) {
+  const rp = room.players.find(p => p.id === playerId)
+  if (!rp) return
+  if (rp.isAI) { scheduleBotTurn(io, roomCode, game, room, playerId); return }
+  const gp = game.players.find(p => p.id === playerId)!
+  startTurnTimer(io, roomCode, game, room, playerId)
+  io.to(rp.socketId).emit('your_turn', { timeout: 30, hand: gp.hand, deckCount: game.deck.length, ...extra })
+}
+
+function scheduleBotTurn(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string) {
+  setTimeout(() => {
+    if (game.gameOver || game.boxerState) return
+    if (game.players[game.currentPlayerIndex]?.id !== playerId) return
+    const gp = game.players.find(p => p.id === playerId)
+    if (!gp) return
+    const cards = choosePlay({ hand: gp.hand, currentBestPlay: game.currentBestPlay })
+    const result = cards
+      ? applyPlay(io, roomCode, game, room, playerId, cards)
+      : applyPass(io, roomCode, game, room, playerId)
+    if (!result.success) applyPass(io, roomCode, game, room, playerId)
+  }, botDelayMs())
 }
 
 /** Handle a play for a human OR an AI. Returns the handler result; caller reports errors. */
@@ -766,8 +778,7 @@ function processPassResult(io: WsServer, roomCode: string, game: NonNullable<Roo
       // Emit round_result so banner shows winner before forced continuation
       emitRoundResult(io, roomCode, game, game.bestPlayerId!)
       const gp = game.players[bestIdx]
-      startTurnTimer(io, roomCode, game, room, gp.id)
-      io.to(room.players[bestIdx].socketId).emit('your_turn', { timeout: 30, hand: gp.hand, deckCount: game.deck.length, tableCards: game.tableCards })
+      promptTurn(io, roomCode, game, room, gp.id, { tableCards: game.tableCards })
     }
     return
   }
@@ -800,11 +811,8 @@ function handlePlayerLeave(io: WsServer, roomCode: string, room: Room, playerId:
   if (!needsResume || room.surrenderState) return
 
   const gp = game.players[game.currentPlayerIndex]
-  const rp = room.players.find(p => p.id === gp.id)
-  if (!rp) return
   clearTurnTimer(roomCode)
-  startTurnTimer(io, roomCode, game, room, gp.id)
-  io.to(rp.socketId).emit('your_turn', { timeout: 30, hand: gp.hand, deckCount: game.deck.length, tableCards: game.tableCards })
+  promptTurn(io, roomCode, game, room, gp.id, { tableCards: game.tableCards })
 }
 
 function startBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {

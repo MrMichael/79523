@@ -159,4 +159,41 @@ describe('WebSocket integration', () => {
     host.emit('remove_ai', { playerId: humanId })
     expect((await hostErr).message).toMatch(/AI/i)
   }, 15000)
+
+  test('AI acts on its own (host + 1 AI)', async () => {
+    process.env.BOT_DELAY_MS = '20'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', { name: 'H', maxPlayers: 2 })
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const filled = waitFor<any>(host, 'players_updated')
+      host.emit('fill_ai')
+      await filled
+
+      const started = waitFor<any>(host, 'game_started')
+      host.emit('ready')
+      const gs = await started
+      const smallest = getSmallestCard(gs.hand)!
+
+      // Either the AI leads (acts by itself) or the host leads and the AI must respond.
+      const first = await Promise.race([
+        waitFor<any>(host, 'play_made', 4000).then(e => ({ kind: 'play' as const, e })),
+        waitFor<any>(host, 'your_turn', 4000).then(e => ({ kind: 'turn' as const, e })),
+      ])
+      if (first.kind === 'turn') {
+        const aiAction = Promise.race([
+          waitFor<any>(host, 'play_made', 3000).then(e => ({ t: 'play', e })),
+          waitFor<any>(host, 'pass_made', 3000).then(e => ({ t: 'pass', e })),
+          waitFor<any>(host, 'round_result', 3000).then(e => ({ t: 'round', e })),
+        ])
+        host.emit('play', { cards: [smallest] })
+        const action = await aiAction
+        expect(action.t).toBeTruthy()
+      } else {
+        expect(first.e.playerId).toBeTruthy() // AI led
+      }
+    } finally {
+      delete process.env.BOT_DELAY_MS
+    }
+  }, 15000)
 })
