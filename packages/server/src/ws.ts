@@ -1,10 +1,13 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
-import { createPlayer, createAIPlayer, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
+import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
+import { verifyToken } from './auth'
+import { findUserById } from './db'
+import { bindOnline, markOnline, markOffline } from './online'
 import type { Card } from '@79523/engine'
 
 import type { Room } from './types'
@@ -905,9 +908,22 @@ function resetRoomForNewGame(room: Room) {
 export function setupWebSocket(httpServer: HttpServer) {
   const io = new Server<ClientEvents, ServerEvents>(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } })
 
+  io.use((socket, next) => {
+    const token = (socket.handshake.auth as any)?.token
+    const payload = token ? verifyToken(token) : null
+    if (!payload) return next(new Error('unauthorized'))
+    const user = findUserById(payload.uid)
+    if (!user) return next(new Error('unauthorized'))
+    socket.data.user = { id: user.id, username: user.username, role: user.role }
+    next()
+  })
+  bindOnline(io)
+
   io.on('connection', (socket) => {
-    let currentPlayerId: string | null = null
+    const me = socket.data.user as { id: string; username: string; role: string }
+    let currentPlayerId: string | null = me.id
     let currentRoomCode: string | null = null
+    markOnline(me.id, socket.id)
 
     // Helper: sync player socketId before sending individual events
     function syncPlayerSockets(room: Room) {
@@ -925,9 +941,12 @@ export function setupWebSocket(httpServer: HttpServer) {
       }
     }
 
-    socket.on('create_room', ({ name, maxPlayers }) => {
-      const room = createRoom(maxPlayers)
-      const player = createPlayer(socket.id, name, true)  // Creator is host
+    socket.on('create_room', () => {
+      const room = createRoom(6)
+      room.hostId = me.id
+      const player = createPlayerForAccount(me)
+      player.isHost = true
+      player.socketId = socket.id
       socket.data.playerId = player.id
       joinRoom(room.code, player)
       currentPlayerId = player.id; currentRoomCode = room.code
@@ -935,10 +954,13 @@ export function setupWebSocket(httpServer: HttpServer) {
       socket.emit('room_created', { roomCode: room.code })
     })
 
-    socket.on('join_room', ({ roomCode, playerName }) => {
-      const player = createPlayer(socket.id, playerName)
+    socket.on('join_room', ({ roomCode }) => {
+      const player = createPlayerForAccount(me)
       const room = joinRoom(roomCode, player)
       if (!room) { socket.emit('error', { message: 'Room not found or full' }); return }
+      const rp = room.players.find(p => p.id === me.id)!
+      rp.socketId = socket.id
+      rp.connected = true
       socket.data.playerId = player.id
       currentPlayerId = player.id; currentRoomCode = roomCode
       socket.join(roomCode)
@@ -1125,6 +1147,7 @@ export function setupWebSocket(httpServer: HttpServer) {
     // ── Disconnect / Reconnect ──
 
     socket.on('disconnect', () => {
+      markOffline(me.id, socket.id)
       if (currentPlayerId && currentRoomCode) {
         setPlayerConnected(currentPlayerId, false)
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })
@@ -1147,22 +1170,23 @@ export function setupWebSocket(httpServer: HttpServer) {
       }
     })
 
-    socket.on('reconnect', ({ roomCode, playerId }) => {
-      const player = getPlayer(playerId)
+    socket.on('reconnect', ({ roomCode }) => {
+      const player = getPlayer(me.id)
       if (!player) { socket.emit('error', { message: 'Player not found' }); return }
-      setPlayerConnected(playerId, true)
-      socket.data.playerId = playerId  // Re-establish identity for syncPlayerSockets
+      setPlayerConnected(me.id, true)
+      player.connected = true
+      socket.data.playerId = me.id
       player.socketId = socket.id
       socket.join(roomCode)
-      currentPlayerId = playerId; currentRoomCode = roomCode
-      io.to(roomCode).emit('player_reconnected', { playerId })
+      currentPlayerId = me.id; currentRoomCode = roomCode
+      io.to(roomCode).emit('player_reconnected', { playerId: me.id })
       const room = getRoom(roomCode)
       if (room?.game) {
-        const gp = room.game.players.find(p => p.id === playerId)!
+        const gp = room.game.players.find(p => p.id === me.id)!
         socket.emit('full_state', {
           ...room.game,
           myHand: gp.hand,
-          myId: playerId,
+          myId: me.id,
           roomPlayerStats: Object.fromEntries(room.players.map(rp => [rp.id, { wins: rp.wins, boxerWins: rp.boxerWins }])),
         })
       }

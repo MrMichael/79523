@@ -6,14 +6,18 @@ import type { Socket } from 'socket.io-client'
 import { getSmallestCard, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import { setupWebSocket } from '../ws'
+import { initDb } from '../db'
+import { registerUser, signToken } from '../auth'
 
 // ── Integration harness: real HTTP server + real socket.io clients ──
 
 let httpServer: HttpServer
 let url: string
 const sockets: Socket[] = []
+let userSeq = 0
 
 beforeAll(async () => {
+  initDb()
   httpServer = createServer()
   setupWebSocket(httpServer)
   await new Promise<void>(resolve => httpServer.listen(0, resolve))
@@ -42,7 +46,8 @@ function waitFor<T = any>(socket: Socket, event: string, timeout = 5000): Promis
 }
 
 async function connectClient(): Promise<Socket> {
-  const socket = ioc(url, { transports: ['websocket'], forceNew: true })
+  const user = registerUser(`u${Date.now()}_${userSeq++}`, 'secret123')
+  const socket = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
   sockets.push(socket)
   await waitFor(socket, 'connect')
   return socket
@@ -118,7 +123,7 @@ describe('WebSocket integration', () => {
 
   test('host can add / fill / remove AI; non-host and in-game attempts are rejected', async () => {
     const host = await connectClient()
-    host.emit('create_room', { name: 'H', maxPlayers: 5 })
+    host.emit('create_room', {})
     const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
 
     const guest = await connectClient()
@@ -137,8 +142,8 @@ describe('WebSocket integration', () => {
     const afterFill = waitFor<any>(host, 'players_updated')
     host.emit('fill_ai')
     list = (await afterFill).players
-    expect(list).toHaveLength(5)
-    expect(list.filter((p: any) => p.isAI)).toHaveLength(3)
+    expect(list).toHaveLength(6)
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(4)
 
     // non-host cannot add
     const guestErr = waitFor<any>(guest, 'error')
@@ -151,10 +156,10 @@ describe('WebSocket integration', () => {
     host.emit('remove_ai', { playerId: aiId })
     list = (await afterRemove).players
     expect(list.find((p: any) => p.id === aiId)).toBeUndefined()
-    expect(list.filter((p: any) => p.isAI)).toHaveLength(2)
+    expect(list.filter((p: any) => p.isAI)).toHaveLength(3)
 
     // removing a human is rejected
-    const humanId = list.find((p: any) => !p.isAI && p.name === 'G').id
+    const humanId = list.find((p: any) => !p.isAI && !p.isHost).id
     const hostErr = waitFor<any>(host, 'error')
     host.emit('remove_ai', { playerId: humanId })
     expect((await hostErr).message).toMatch(/AI/i)
@@ -164,11 +169,11 @@ describe('WebSocket integration', () => {
     process.env.BOT_DELAY_MS = '20'
     try {
       const host = await connectClient()
-      host.emit('create_room', { name: 'H', maxPlayers: 2 })
+      host.emit('create_room', {})
       const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
-      const filled = waitFor<any>(host, 'players_updated')
-      host.emit('fill_ai')
-      await filled
+      const added = waitFor<any>(host, 'players_updated')
+      host.emit('add_ai')
+      await added
 
       // Attach listeners BEFORE ready so we don't miss the first your_turn.
       let hostHand: Card[] = []
@@ -207,11 +212,14 @@ describe('WebSocket integration', () => {
     process.env.FLOW_DELAY_MS = '5'
     try {
       const host = await connectClient()
-      host.emit('create_room', { name: 'H', maxPlayers: 4 })
+      host.emit('create_room', {})
       const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
-      const filled = waitFor<any>(host, 'players_updated')
-      host.emit('fill_ai')
-      await filled
+      const full = new Promise<void>(resolve => {
+        const check = (d: any) => { if (d.players.length >= 4) { host.off('players_updated', check); resolve() } }
+        host.on('players_updated', check)
+      })
+      host.emit('add_ai'); host.emit('add_ai'); host.emit('add_ai')
+      await full
 
       // Drive the lone human so the table keeps moving (lead smallest / otherwise pass).
       let hostHand: Card[] = []
