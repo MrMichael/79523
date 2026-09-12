@@ -12,7 +12,6 @@
       <template v-if="metric === 'wins24h'">
         <span class="stat">🏆 {{ u.wins24h }}</span>
         <span class="stat">🥊 {{ u.boxerWins24h }}</span>
-        <span class="stat">⏱ {{ formatDuration(u.playSeconds24h) }}</span>
       </template>
       <template v-else>
         <span class="stat">🏆 {{ u.wins }}</span>
@@ -26,7 +25,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { apiFetch } from '@/api'
-import { formatDuration } from '@/format'
 
 type Metric = 'wins' | 'boxerWins' | 'wins24h'
 const metric = ref<Metric>('wins')

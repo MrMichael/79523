@@ -78,7 +78,6 @@ describe('Leaderboard', () => {
     const row = w.find('.rank-row').text()
     expect(row).toContain('🏆 2')
     expect(row).toContain('🥊 1')
-    expect(row).toContain('1小时0分')
     expect((apiFetch as any).mock.calls.at(-1)[0]).toContain('metric=wins24h')
   })
 })
