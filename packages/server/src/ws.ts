@@ -4,7 +4,7 @@ import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
-import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
+import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn, getSmallestCard } from '@79523/engine'
 import { verifyToken } from './auth'
 import { findUserById } from './db'
 import { bindOnline, markOnline, markOffline } from './online'
@@ -34,6 +34,7 @@ function emitDrawCards(io: WsServer, roomCode: string, game: NonNullable<Room['g
 // ── Boxer flow ──
 
 function startBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
+  clearBoxerTimers(roomCode)
   const bs = game.boxerState!
   const card = bs.scoreCards[bs.currentCardIndex]
   bs.currentSurvivors = getBoxerParticipants(game)
@@ -54,6 +55,7 @@ function startBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Room[
 }
 
 function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
+  clearBoxerTimers(roomCode)
   const bs = game.boxerState!
   bs.round++
 
@@ -129,22 +131,36 @@ function maybeResolveBoxer(io: WsServer, roomCode: string, game: NonNullable<Roo
  * Schedule boxer moves: AI submit quickly, humans get a timeout fallback so the round
  * never deadlocks waiting on an unresponsive player.
  */
+let boxerTimers = new Map<string, ReturnType<typeof setTimeout>[]>()
+
+/** Cancel pending boxer-move timers. `game.boxerState` is reused across rounds, so a stale
+ *  timer from a previous round would otherwise auto-submit the player's move in a later one. */
+function clearBoxerTimers(roomCode: string) {
+  const arr = boxerTimers.get(roomCode)
+  if (!arr) return
+  for (const t of arr) clearTimeout(t)
+  boxerTimers.delete(roomCode)
+}
+
 function scheduleBotBoxer(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
   const bs = game.boxerState
   if (!bs) return
   const room = getRoom(roomCode)
   const humanTimeout = Number(process.env.BOXER_TIMEOUT_MS) || 15000
+  const timers = boxerTimers.get(roomCode) || []
+  boxerTimers.set(roomCode, timers)
   for (const id of bs.currentSurvivors) {
     if (bs.currentMoves.has(id)) continue
     const rp = room?.players.find(p => p.id === id)
     const delay = rp?.isAI ? botDelayMs() : humanTimeout
-    setTimeout(() => {
+    const t = setTimeout(() => {
       const cur = game.boxerState
       if (cur !== bs) return
       if (!cur.currentSurvivors.includes(id) || cur.currentMoves.has(id)) return
       cur.currentMoves.set(id, chooseBoxerMove())
       maybeResolveBoxer(io, roomCode, game)
     }, delay)
+    timers.push(t)
   }
 }
 
@@ -226,6 +242,7 @@ function resolveScoreRankings(io: WsServer, roomCode: string, game: NonNullable<
 }
 
 function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
+  clearBoxerTimers(roomCode)
   const bs = game.boxerState!
   bs.currentMoves.clear()
   bs.round = 0
@@ -263,6 +280,7 @@ function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullab
 
 /** Resolve tiebreaker round: first player to win becomes champion */
 function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
+  clearBoxerTimers(roomCode)
   const bs = game.boxerState!
   bs.round++
 
@@ -323,6 +341,7 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
   const room = getRoom(roomCode)
   if (!room) return
   game.boxerState = null
+  clearBoxerTimers(roomCode)
 
   const sorted = [...game.players].sort((a, b) => b.score - a.score || a.tiebreakOrder - b.tiebreakOrder)
   const pc = game.players.length
@@ -347,6 +366,12 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
   // Game is finished — allow the next start_game and reflect it in the lobby.
   room.game = null
   broadcastLobby()
+
+  // Option B: a seat is kept for the whole game; now that it's over, re-arm the normal
+  // disconnect grace for any seat that is still offline (removes them if they never return).
+  for (const rp of room.players) {
+    if (!rp.isAI && !rp.connected) scheduleDisconnectRemoval(io, roomCode, rp.id, disconnectKickMs())
+  }
 
   // Timing: boxer end → 2s → settlement → 3s → leaderboard
   setTimeout(() => {
@@ -412,7 +437,9 @@ function resetSurrenderTimer(io: WsServer, roomCode: string, game: NonNullable<R
   const timer = setTimeout(() => {
     ;(room as any).__surrenderTimer = null
     if (game.gameOver || game.boxerState) return
-    const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game)
+    const ss = room.surrenderState
+    if (!ss) return
+    const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game, { loserIds: ss.loserIds, winnerIds: ss.winnerIds })
     if (nextLeadPlayerId) {
       const leadIdx = game.players.findIndex(p => p.id === nextLeadPlayerId)
       if (leadIdx >= 0) game.currentPlayerIndex = leadIdx
@@ -434,35 +461,40 @@ function resetSurrenderTimer(io: WsServer, roomCode: string, game: NonNullable<R
   ;(room as any).__surrenderTimer = timer
 }
 
-function sendSurrenderPrompt(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room) {
+function sendSurrenderPrompt(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, onlyPlayerId?: string) {
   const ss = room.surrenderState!
   log('SURRENDER_PROMPT', roomCode, `phase=${ss.phase} pair=${ss.currentPairIndex}`)
-  resetSurrenderTimer(io, roomCode, game, room)
-  scheduleBotSurrender(io, roomCode, game, room)
+  // Only arm timers for a fresh prompt; a reconnect resend must not extend them.
+  if (!onlyPlayerId) {
+    resetSurrenderTimer(io, roomCode, game, room)
+    scheduleBotSurrender(io, roomCode, game, room)
+  }
   const gp = (id: string) => game.players.find(p => p.id === id)!
+  const send = (playerId: string, payload: any) => {
+    if (onlyPlayerId && onlyPlayerId !== playerId) return
+    const rp = room.players.find(p => p.id === playerId)
+    if (rp) io.to(rp.socketId).emit('surrender_start', payload)
+  }
 
   if (ss.phase === 'losers_give') {
     const loserId = ss.loserIds[ss.currentPairIndex]
     const loser = room.players.find(p => p.id === loserId)
     if (!loser) return
-    io.to(loser.socketId).emit('surrender_start', {
+    send(loserId, {
       phase: 'losers_give',
       yourRole: 'loser',
       hand: gp(loserId).hand,
       info: `请选择你手中最大的单张牌上缴`,
     })
-    // Other players see waiting state
     for (const p of room.players) {
-      if (p.id !== loserId) {
-        const playerGp = gp(p.id)
-        const role = ss.winnerIds.includes(p.id) ? 'winner' : 'spectator'
-        io.to(p.socketId).emit('surrender_start', {
-          phase: 'losers_give',
-          yourRole: role as 'winner' | 'spectator',
-          hand: playerGp.hand,
-          info: `等待 ${loser.name} 上缴最大牌...`,
-        })
-      }
+      if (p.id === loserId) continue
+      const role = ss.winnerIds.includes(p.id) ? 'winner' : 'spectator'
+      send(p.id, {
+        phase: 'losers_give',
+        yourRole: role as 'winner' | 'spectator',
+        hand: gp(p.id).hand,
+        info: `等待 ${loser.name} 上缴最大牌...`,
+      })
     }
   } else if (ss.phase === 'winners_pick') {
     const winnerId = ss.winnerIds[ss.currentPairIndex]
@@ -474,7 +506,7 @@ function sendSurrenderPrompt(io: WsServer, roomCode: string, game: NonNullable<R
       return { playerId: sc.playerId, playerName: lp?.name || '?', card: sc.card }
     })
 
-    io.to(winner.socketId).emit('surrender_start', {
+    send(winnerId, {
       phase: 'winners_pick',
       yourRole: 'winner',
       hand: gp(winnerId).hand,
@@ -482,35 +514,33 @@ function sendSurrenderPrompt(io: WsServer, roomCode: string, game: NonNullable<R
       surrenderedCards: surrenderedInfos,
     })
     for (const p of room.players) {
-      if (p.id !== winnerId) {
-        io.to(p.socketId).emit('surrender_start', {
-          phase: 'winners_pick',
-          yourRole: 'spectator',
-          hand: gp(p.id).hand,
-          info: `等待 ${winner.name} 挑选牌...`,
-        })
-      }
+      if (p.id === winnerId) continue
+      send(p.id, {
+        phase: 'winners_pick',
+        yourRole: 'spectator',
+        hand: gp(p.id).hand,
+        info: `等待 ${winner.name} 挑选牌...`,
+      })
     }
   } else if (ss.phase === 'winners_return') {
     const winnerId = ss.winnerIds[ss.currentPairIndex]
     const winner = room.players.find(p => p.id === winnerId)
     if (!winner || !ss.pendingPick) return
 
-    io.to(winner.socketId).emit('surrender_start', {
+    send(winnerId, {
       phase: 'winners_return',
       yourRole: 'winner',
       hand: gp(winnerId).hand,
       info: `请选择一张牌还给对手`,
     })
     for (const p of room.players) {
-      if (p.id !== winnerId) {
-        io.to(p.socketId).emit('surrender_start', {
-          phase: 'winners_return',
-          yourRole: 'spectator',
-          hand: gp(p.id).hand,
-          info: `等待 ${winner.name} 返还牌...`,
-        })
-      }
+      if (p.id === winnerId) continue
+      send(p.id, {
+        phase: 'winners_return',
+        yourRole: 'spectator',
+        hand: gp(p.id).hand,
+        info: `等待 ${winner.name} 返还牌...`,
+      })
     }
   }
 }
@@ -666,10 +696,10 @@ function startTurnTimer(io: WsServer, roomCode: string, game: NonNullable<Room['
     if (autoResult.success) {
       processPassResult(io, roomCode, game, room, autoResult)
     } else {
-      // Must play — auto-play smallest single card
-      const hand = currentPlayer.hand
-      if (hand.length > 0) {
-        const smallest = hand.reduce((a, b) => a.rank < b.rank ? a : b)
+      // Must play — auto-play the *engine's* smallest card (matches the first-trick rule;
+      // a hand can hold two cards of the same rank, so a naive min-by-rank can be rejected).
+      const smallest = getSmallestCard(currentPlayer.hand)
+      if (smallest) {
         const playResult = handlePlay(game, playerId, [smallest])
         if (playResult.success) {
           io.to(roomCode).emit('play_made', {
@@ -692,7 +722,7 @@ function startTurnTimer(io: WsServer, roomCode: string, game: NonNullable<Room['
         }
       }
     }
-  }, 30000)
+  }, turnTimeoutMs())
   turnTimers.set(roomCode, timer)
 }
 
@@ -709,6 +739,7 @@ function emitRoundResult(io: WsServer, roomCode: string, game: NonNullable<Room[
     playerHandSizes: game.players.map(p => ({ id: p.id, cardCount: p.hand.length })),
   })
   game.tableCards = []
+  game.tablePlays = []
 }
 
 /**
@@ -748,6 +779,11 @@ function botDelayMs(): number {
   return Number(process.env.BOT_DELAY_MS) || 700
 }
 
+/** How long a human has to act before auto-pass / auto-play keeps the game moving. */
+function turnTimeoutMs(): number {
+  return Number(process.env.TURN_TIMEOUT_MS) || 30000
+}
+
 function flowDelayMs(): number {
   return Number(process.env.FLOW_DELAY_MS) || 2000
 }
@@ -764,7 +800,7 @@ function promptTurn(io: WsServer, roomCode: string, game: NonNullable<Room['game
   if (rp.isAI) { scheduleBotTurn(io, roomCode, game, room, playerId); return }
   const gp = game.players.find(p => p.id === playerId)!
   startTurnTimer(io, roomCode, game, room, playerId)
-  io.to(rp.socketId).emit('your_turn', { timeout: 30, hand: gp.hand, deckCount: game.deck.length, ...extra })
+  io.to(rp.socketId).emit('your_turn', { timeout: Math.round(turnTimeoutMs() / 1000), hand: gp.hand, deckCount: game.deck.length, ...extra })
 }
 
 function scheduleBotTurn(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string) {
@@ -887,6 +923,32 @@ function handlePlayerLeave(io: WsServer, roomCode: string, room: Room, playerId:
   promptTurn(io, roomCode, game, room, gp.id, { tableCards: game.tableCards })
 }
 
+function disconnectKickMs(): number {
+  return Number(process.env.DISCONNECT_KICK_MS) || 180000
+}
+
+/**
+ * Remove a seat after the player has been gone past the grace period. While a game is in
+ * progress the seat is kept (option B): the turn timer auto-plays for the absent player and
+ * they can reconnect to take back control. A finished game (finishBoxerFlow) re-arms this.
+ */
+function scheduleDisconnectRemoval(io: WsServer, roomCode: string, playerId: string, delayMs: number) {
+  setTimeout(() => {
+    const player = getPlayer(playerId)
+    if (!player || player.connected) return
+    const room = getRoom(roomCode)
+    if (!room) return
+    if (room.game) return // keep the seat for the duration of the game
+    leaveRoom(roomCode, playerId)
+    const updated = getRoom(roomCode)
+    io.to(roomCode).emit('player_left', {
+      playerId,
+      players: updated ? serializePlayers(updated.players) : [],
+    })
+    broadcastLobby()
+  }, delayMs)
+}
+
 function startBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
   const scoreCards = getBoxerScoreCards(game)
   log('BOXER_START', roomCode, `cards=${scoreCards.length}`)
@@ -912,6 +974,29 @@ function startBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room['
   }
   game.boxerState = boxerState
   startBoxerRound(io, roomCode, game)
+}
+
+/**
+ * Re-send the current boxer prompt to a just-reconnected player so their overlay reappears
+ * (otherwise a client that missed the boxer events can neither see nor act in the round).
+ */
+function resendBoxerState(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, playerId: string) {
+  const bs = game.boxerState
+  const room = getRoom(roomCode)
+  const rp = room?.players.find(p => p.id === playerId)
+  if (!bs || !room || !rp) return
+  const gameScores: Record<string, number> = {}
+  const boxerWins: Record<string, number> = {}
+  for (const p of game.players) gameScores[p.id] = p.score
+  for (const r of room.players) boxerWins[r.id] = r.boxerWins
+  io.to(rp.socketId).emit('boxer_start', {
+    scoreCard: bs.scoreCards.length > 0 ? bs.scoreCards[bs.currentCardIndex] : null,
+    participants: [...bs.currentSurvivors],
+    gameScores,
+    boxerWins,
+    spectators: !bs.currentSurvivors.includes(playerId),
+    submitted: bs.currentMoves.has(playerId),
+  })
 }
 
 // ── Reset ready states for new game ──
@@ -977,7 +1062,12 @@ function startRoom(io: WsServer, room: Room) {
 }
 
 export function setupWebSocket(httpServer: HttpServer) {
-  const io = new Server<ClientEvents, ServerEvents>(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } })
+  const io = new Server<ClientEvents, ServerEvents>(httpServer, {
+    cors: { origin: '*', methods: ['GET', 'POST'] },
+    // Tolerate mobile backgrounding: keep the socket alive across brief suspensions.
+    pingInterval: 25000,
+    pingTimeout: 60000,
+  })
 
   io.use((socket, next) => {
     const token = (socket.handshake.auth as any)?.token
@@ -1014,7 +1104,7 @@ export function setupWebSocket(httpServer: HttpServer) {
     socket.on('join_room', ({ roomCode }) => {
       const player = createPlayerForAccount(me)
       const room = joinRoom(roomCode, player)
-      if (!room) { socket.emit('error', { message: 'Room not found or full' }); return }
+      if (!room) { socket.emit('error', { message: 'Room not found, full, or game in progress' }); return }
       const rp = room.players.find(p => p.id === me.id)!
       rp.socketId = socket.id
       rp.connected = true
@@ -1139,6 +1229,23 @@ export function setupWebSocket(httpServer: HttpServer) {
       maybeResolveBoxer(io, currentRoomCode, room.game)
     })
 
+    // ── Explicit leave (disconnect keeps the seat instead — option B) ──
+
+    socket.on('leave_room', () => {
+      if (!currentRoomCode || !currentPlayerId) return
+      const room = getRoom(currentRoomCode)
+      if (room?.game) handlePlayerLeave(io, currentRoomCode, room, currentPlayerId)
+      leaveRoom(currentRoomCode, currentPlayerId)
+      const updated = getRoom(currentRoomCode)
+      io.to(currentRoomCode).emit('player_left', {
+        playerId: currentPlayerId,
+        players: updated ? serializePlayers(updated.players) : [],
+      })
+      broadcastLobby()
+      currentRoomCode = null
+      currentPlayerId = null
+    })
+
     // ── Disconnect / Reconnect ──
 
     socket.on('disconnect', () => {
@@ -1146,24 +1253,10 @@ export function setupWebSocket(httpServer: HttpServer) {
       broadcastLobby()
       if (currentPlayerId && currentRoomCode) {
         setPlayerConnected(currentPlayerId, false)
+        const room = getRoom(currentRoomCode)
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })
-        const kickDelayMs = Number(process.env.DISCONNECT_KICK_MS) || 30000
-        setTimeout(() => {
-          const player = getPlayer(currentPlayerId!)
-          if (player && !player.connected) {
-            // If a game is in progress, drop the seat from the game first so it keeps
-            // moving instead of stalling when the turn reaches a removed player.
-            const room = getRoom(currentRoomCode!)
-            if (room?.game) handlePlayerLeave(io, currentRoomCode!, room, currentPlayerId!)
-            leaveRoom(currentRoomCode!, currentPlayerId!)
-            const updated = getRoom(currentRoomCode!)
-            io.to(currentRoomCode!).emit('player_left', {
-              playerId: currentPlayerId!,
-              players: updated ? serializePlayers(updated.players) : [],
-            })
-            broadcastLobby()
-          }
-        }, kickDelayMs)
+        if (room) io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room.players) })
+        scheduleDisconnectRemoval(io, currentRoomCode, currentPlayerId, disconnectKickMs())
       }
     })
 
@@ -1178,14 +1271,24 @@ export function setupWebSocket(httpServer: HttpServer) {
       currentPlayerId = me.id; currentRoomCode = roomCode
       io.to(roomCode).emit('player_reconnected', { playerId: me.id })
       const room = getRoom(roomCode)
-      if (room?.game) {
-        const gp = room.game.players.find(p => p.id === me.id)!
+      if (!room) return
+      io.to(roomCode).emit('players_updated', { players: serializePlayers(room.players) })
+      const gp = room.game?.players.find(p => p.id === me.id)
+      if (room.game && gp) {
         socket.emit('full_state', {
           ...room.game,
           myHand: gp.hand,
           myId: me.id,
+          roomCode,
           roomPlayerStats: Object.fromEntries(room.players.map(rp => [rp.id, { wins: rp.wins, boxerWins: rp.boxerWins }])),
+          playerNames: Object.fromEntries(room.players.map(rp => [rp.id, rp.name])),
         })
+        resendBoxerState(io, roomCode, room.game, me.id)
+        if (room.surrenderState) sendSurrenderPrompt(io, roomCode, room.game, room, me.id)
+      } else {
+        // No game in progress (or this seat isn't part of it): the client may still be on the
+        // game screen, so send it back to the room view instead of leaving it stuck.
+        socket.emit('next_game_lead', { playerId: '' })
       }
     })
   })

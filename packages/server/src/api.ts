@@ -130,9 +130,4 @@ router.delete('/admin/rooms/:code', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true })
 })
 
-router.post('/admin/kick/:userId', requireAuth, requireAdmin, (req, res) => {
-  kickUser(req.params.userId)
-  res.json({ ok: true })
-})
-
 export default router

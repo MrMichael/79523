@@ -76,8 +76,9 @@ CREATE TABLE users (
   - `POST   /api/admin/users/:id/reset` — **重置该用户战绩**（wins/boxerWins=0）
   - `PUT    /api/admin/users/:id/role` `{role}` — **提升/降级管理员**
   - `DELETE /api/admin/rooms/:code` — **解散房间**（销毁房间并通知房内玩家）
-  - `POST   /api/admin/kick/:userId` — **踢出在线玩家**（断其所有 socket）
 - **边界**：管理员**不能删除或降级自己**；系统始终保留至少一个 admin。所有 `/api/admin/*` 二次校验 `role==='admin'`。
+
+> 注：曾有的 `POST /api/admin/kick/:userId`（踢出在线玩家）已移除；删除账号仍会断开其 socket。
 
 ## 8. 房间流程（本次修订）
 
@@ -117,8 +118,8 @@ CREATE TABLE users (
 - **三榜切换**：
   - 胜局榜：`ORDER BY wins DESC, boxer_wins DESC`
   - 拳王榜：`ORDER BY boxer_wins DESC, wins DESC`
-  - **近24小时榜**（后续需求）：按最近 24 小时**胜局数**降序，并列时按 24 小时拳王数；同行另显示 24 小时拳王数与时长。
-- 每行显示 `名次 · 用户名 · 胜局 · 拳王 · 在线点`（近24小时榜改显 24 小时数据）。累计榜数据源为 DB 查询，24 小时榜由 `play_log` 聚合。
+  - **近24小时榜**（后续需求）：按最近 24 小时**胜局数**降序，并列时按 24 小时拳王数；同行显示 24 小时胜局与拳王数。
+- 每行显示 `名次 · 用户名 · 胜局 · 拳王 · 在线点`（近24小时榜改显该窗口的胜局/拳王）。累计榜数据源为 DB 查询，24 小时榜由 `play_log` 聚合。
 
 ## 11. 战绩持久化（需求 3）
 
@@ -163,6 +164,23 @@ CREATE TABLE users (
 - 管理员接口全部 `role==='admin'` 校验 + 防自删/自降。
 - 被删/被踢用户：断开 socket，前端下个请求 401 → 回登录页。
 - SQLite 使用参数化查询，避免注入。
+
+## 14.1 断线与重连（移动端）
+
+- **socket.io 服务端参数**：`pingInterval 25s / pingTimeout 60s`，容忍手机切后台约 1 分钟不回应 ping。
+- **对局中不移出（方案 B）**：掉线只标记 `connected=false`，**座位保留到本局结束**；缺席玩家的回合由回合计时器（`TURN_TIMEOUT_MS`，默认 30s）自动 pass / 出最小牌，保证对局不卡死。
+- **重连即接管**：客户端 socket `connect` 后，若当前在 `/room/:code` 或 `/game/:code`，自动 `emit('reconnect', { roomCode })`；服务端更新 `socketId`、置 `connected=true`、重新加入房间、广播 `players_updated`、并向该 socket 单发 `full_state`（含手牌与桌面 `tableCards`），玩家随即恢复操作。若重连时**无进行中对局**（`room.game` 为空），则补发 `next_game_lead`，客户端回到房间页（否则会卡在已结束的对局页）。
+- **对局中不接受新玩家**：`join_room` 在 `room.game` 存在时拒绝（否则新座位不在 `game.players` 中，会破坏回合路由）；重连必须走 `reconnect`。
+- **对局页可作入口**：`GameView` 挂载时也会 `connect()` 并注册 room+game 监听（`useRoom.setupListeners`）。手机切应用时后台页常被系统重载，若对局页不建连/不注册监听，重连后就是一个空壳（无手牌、无玩家）。
+- **房间内玩家对象唯一**：`createPlayerForAccount` 复用已有对象，保证全局账号表与 `room.players` 不会指向不同对象（否则 `socketId`/`connected` 会错位）。
+- **重连后恢复展示**：`full_state` 含 `roomCode`、`tablePlays`（桌面每张牌的玩家归属，用于按玩家配色）与 `playerNames`；客户端收到 `full_state` 时若不在对局页则跳转 `/game/:code`（修复“掉线玩家漏掉 `game_started`、恢复后停在房间页”）。若重连时正处于拳王环节，服务端额外补发 `boxer_start`（带 `submitted` 标记）；若正处于交粮环节，补发 `surrender_start`（不重置其超时）。
+- **交粮/拳王 UI 由 store 驱动**：`SurrenderOverlay` 不自己挂 socket 监听（子组件挂载早于父组件 `connect()`，重载后会漏掉事件），改由 `useGame` 写入 store（`surrenderActive/phase/role/hand/info/pickCards`），遮罩只读 store；重连补发的 `surrender_start` 因此能正常恢复。
+- **回合计时器自动出牌**：使用引擎的 `getSmallestCard`（同点数按花色比较）而非按 rank 手写取最小；否则首回合"必须包含最小牌"校验会失败，导致该回合不再推进（双方都挂机/离线时对局死住）。
+- **拳王出拳计时器按回合清理**：`game.boxerState` 在整个拳王阶段是**同一个对象**（就地复用），所以 `scheduleBotBoxer` 的 `cur !== bs` 守卫拦不住上一轮的计时器；回合结算/新回合时调用 `clearBoxerTimers`（`processBoxerRound`/`resolveBoxerTiebreakRound`/`startBoxer*Round`/`finishBoxerFlow`），否则上一轮为真人排的超时会**在后面的回合提前替他出拳**（玩家“没机会点”）。
+- **交粮超时自动完成**：使用上一局名次（`pendingSurrender` 的 `loserIds/winnerIds`，固定配对 loser i ↔ winner i）；不能按新一局分数排序（开局分数全 0，会等于随机配对）；赢家无可回牌时回退本次给牌，保证手牌数不变。
+- **主动离开**：`leave_room` 显式移出房间；若在对局中则先 `handlePlayerLeave` 把回合并给下家。（断线**不**触发此路径。）
+- **本局结束后**：`finishBoxerFlow` 为仍离线的座位重新排定移除定时器（`DISCONNECT_KICK_MS`，默认 180s），到点仍未回来才移出房间。
+- **在线状态**：仍以 socket 集合判定（见 §7/§9）；断线即离线，重连即在线。
 
 ## 15. 测试策略
 

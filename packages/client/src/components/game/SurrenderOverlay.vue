@@ -50,20 +50,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useSocket } from '@/composables/useSocket'
+import { useGameStore } from '@/stores/game'
 import type { Card } from '@79523/engine'
 import CardSprite from '@/components/common/CardSprite.vue'
 
+// State lives in the store (driven by useGame's socket handlers), so the overlay still
+// works after a reconnect/reload — a component-local listener would miss the re-sent prompt.
 const { socket } = useSocket()
+const store = useGameStore()
 
-const active = ref(false)
-const phase = ref<'losers_give' | 'winners_pick' | 'winners_return' | ''>('')
-const myRole = ref<'loser' | 'winner' | 'spectator'>('spectator')
-const myHand = ref<Card[]>([])
-const info = ref('')
-const surrenderedCardsForPick = ref<{ playerId: string; playerName: string; card: Card }[]>([])
+const active = computed(() => store.surrenderActive)
+const phase = computed(() => store.surrenderPhase)
+const myRole = computed(() => store.surrenderRole)
+const myHand = computed(() => store.surrenderHand)
+const info = computed(() => store.surrenderInfo)
+const surrenderedCardsForPick = computed(() => store.surrenderPickCards)
+
 const selectedCards = ref<Card[]>([])
+watch(() => store.surrenderPhase, () => { selectedCards.value = [] })
 
 const largestCard = computed(() => {
   if (!myHand.value.length) return null
@@ -88,71 +94,21 @@ function toggleCard(card: Card) {
 
 function submitGive() {
   if (selectedCards.value.length !== 1) return
-  const card = selectedCards.value[0]
-  socket.value?.emit('surrender_give', { card })
-  myHand.value = myHand.value.filter(c => c.suit !== card.suit || c.rank !== card.rank)
+  socket.value?.emit('surrender_give', { card: selectedCards.value[0] })
   selectedCards.value = []
-  info.value = '已上缴'
 }
 
 function submitPick() {
   if (selectedCards.value.length !== 1) return
-  const card = selectedCards.value[0]
-  socket.value?.emit('surrender_pick', { card })
-  myHand.value.push(card)
+  socket.value?.emit('surrender_pick', { card: selectedCards.value[0] })
   selectedCards.value = []
-  info.value = '已挑选'
 }
 
 function submitReturn() {
   if (selectedCards.value.length !== 1) return
-  const card = selectedCards.value[0]
-  socket.value?.emit('surrender_return', { card })
-  // Remove card from displayed hand immediately
-  myHand.value = myHand.value.filter(c => c.suit !== card.suit || c.rank !== card.rank)
+  socket.value?.emit('surrender_return', { card: selectedCards.value[0] })
   selectedCards.value = []
-  info.value = `已返还一张牌给对手`
 }
-
-onMounted(() => {
-  socket.value?.on('surrender_start', (data: any) => {
-    active.value = true
-    phase.value = data.phase
-    myRole.value = data.yourRole
-    myHand.value = data.hand || []
-    info.value = data.info || ''
-
-    if (data.surrenderedCards) {
-      surrenderedCardsForPick.value = data.surrenderedCards
-    }
-  })
-
-  socket.value?.on('surrender_update', (data: any) => {
-    info.value = data.info || info.value
-    if (data.surrenderedCards !== undefined) {
-      surrenderedCardsForPick.value = data.surrenderedCards
-    }
-  })
-
-  function cleanupSurrender() {
-    // Do NOT sync hand — server sends draw_card/your_turn with correct hand immediately
-    active.value = false
-    phase.value = ''
-    myRole.value = 'spectator'
-    myHand.value = []
-    surrenderedCardsForPick.value = []
-    selectedCards.value = []
-  }
-
-  socket.value?.on('next_game_lead', () => {
-    cleanupSurrender()
-  })
-
-  socket.value?.on('surrender_swap', () => {
-    // Inter-game surrender completed, hide overlay
-    setTimeout(() => cleanupSurrender(), 1500)
-  })
-})
 </script>
 
 <style scoped>

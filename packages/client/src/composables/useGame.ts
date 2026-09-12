@@ -152,7 +152,7 @@ export function useGame() {
 
     // ── Boxer events ──
 
-    socket.value?.on('boxer_start', ({ scoreCard, participants, gameScores, boxerWins }: any) => {
+    socket.value?.on('boxer_start', ({ scoreCard, participants, gameScores, boxerWins, submitted }: any) => {
       clog('boxer_start', { participants: participants?.length })
       store.boxerPhase = 'awaiting'
       store.boxerScoreCard = scoreCard
@@ -160,6 +160,7 @@ export function useGame() {
       store.boxerMoves = {}
       store.boxerSurvivors = [...participants]
       store.boxerCountdown = 3
+      store.boxerSubmitted = !!submitted
       if (gameScores) store.boxerGameScores = gameScores
       if (boxerWins) store.boxerWinCounts = boxerWins
     })
@@ -188,14 +189,31 @@ export function useGame() {
     socket.value?.on('surrender_start', (data: any) => {
       clog('surrender_start', { phase: data.phase, role: data.yourRole, hand: data.hand?.length })
       if (data.hand) store.myHand = data.hand
+      store.surrenderActive = true
+      store.surrenderPhase = data.phase
+      store.surrenderRole = data.yourRole
+      store.surrenderHand = data.hand || []
+      store.surrenderInfo = data.info || ''
+      if (data.surrenderedCards) store.surrenderPickCards = data.surrenderedCards
     })
 
     socket.value?.on('surrender_update', (data: any) => {
       clog('surrender_update', { phase: data.phase, info: data.info })
+      if (data.info) store.surrenderInfo = data.info
+      if (data.surrenderedCards !== undefined) store.surrenderPickCards = data.surrenderedCards
     })
 
     socket.value?.on('surrender_swap', ({ losers }: any) => {
-      clog('surrender_swap', losers?.map((l:any) => l.id))
+      clog('surrender_swap', losers?.map((l: any) => l.id))
+      // Inter-game surrender completed — hide the overlay after players can read the summary.
+      setTimeout(() => {
+        store.surrenderActive = false
+        store.surrenderPhase = ''
+        store.surrenderRole = 'spectator'
+        store.surrenderHand = []
+        store.surrenderInfo = ''
+        store.surrenderPickCards = []
+      }, 1500)
     })
 
     socket.value?.on('boxer_champion', ({ playerId, scores }: any) => {
@@ -235,11 +253,22 @@ export function useGame() {
       store.boxerMoves = {}
       store.boxerSurvivors = []
       store.boxerWinnerId = ''
+      store.boxerSubmitted = false
+      store.surrenderActive = false
+      store.surrenderPhase = ''
+      store.surrenderRole = 'spectator'
+      store.surrenderHand = []
+      store.surrenderInfo = ''
+      store.surrenderPickCards = []
     })
 
-    socket.value?.on('full_state', ({ myHand: hand, deck, players: gamePlayers, currentPlayerIndex, myId, roomPlayerStats }: any) => {
+    socket.value?.on('full_state', ({ myHand: hand, deck, tableCards, tablePlays, players: gamePlayers, currentPlayerIndex, myId, roomPlayerStats, playerNames: names }: any) => {
       store.myHand = hand
       store.myId = myId
+      if (names) playerNames.value = names
+      // Restore the table (cards + who played them, for per-player colours).
+      store.tableCards = tableCards ?? []
+      store.tablePlays = tablePlays ?? []
       store.deckCount = deck?.length || 0
       if (gamePlayers) {
         store.scores = {}

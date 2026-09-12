@@ -31,6 +31,15 @@ export function useRoom() {
     socket.value?.emit('join_room', { roomCode: code })
     router.push(`/room/${code}`)
   }
+  function leaveRoom() {
+    socket.value?.emit('leave_room')
+    // Keep listenersSetup=true: the socket object (and its listeners) survives, so we only
+    // clear the room state here to avoid re-registering duplicate handlers.
+    roomCode.value = ''
+    players.value = []
+    myId.value = ''
+    router.push('/lobby')
+  }
   function startGame() {
     socket.value?.emit('start_game')
   }
@@ -62,6 +71,12 @@ export function useRoom() {
       rlog('player_joined', `n=${plist.length}`)
       players.value = plist as PlayerInfo[]
     })
+    socket.value?.on('full_state', ({ roomCode: code }: any) => {
+      // A player who was offline when the host started the game missed `game_started`;
+      // on reconnect the server sends full_state, so move them onto the game screen.
+      const target = code || roomCode.value
+      if (target && router.currentRoute.value.name !== 'game') router.push(`/game/${target}`)
+    })
     socket.value?.on('players_updated', ({ players: plist }) => {
       players.value = plist as PlayerInfo[]
     })
@@ -91,5 +106,5 @@ export function useRoom() {
     listenersSetup = false
   }
 
-  return { roomCode, players, myId, createRoom, joinRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
+  return { roomCode, players, myId, createRoom, joinRoom, leaveRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
 }

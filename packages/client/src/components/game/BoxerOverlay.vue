@@ -88,7 +88,10 @@ const store = useGameStore()
 const isSpectating = computed(() =>
   store.boxerParticipants.length > 0 && !store.boxerParticipants.includes(store.myId)
 )
-const moveSubmitted = ref(false)
+const localSubmitted = ref(false)
+// Reflects both the optimistic local click and the server's "already submitted" flag
+// (the latter matters after a reconnect during a boxer round).
+const moveSubmitted = computed(() => localSubmitted.value || store.boxerSubmitted)
 const countdown = ref(3)
 const revealPhase = ref<'hidden' | 'revealing' | 'shown'>('hidden')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
@@ -132,7 +135,7 @@ function moveEmoji(move: string): string {
 }
 
 function submitMove(move: string) {
-  moveSubmitted.value = true
+  localSubmitted.value = true
   emit('boxerMove', move)
 }
 
@@ -152,8 +155,8 @@ function startCountdown() {
 
 watch(() => store.boxerPhase, (phase) => {
   if (phase === 'awaiting') {
-    moveSubmitted.value = false
-    startCountdown()
+    localSubmitted.value = false
+    if (!store.boxerSubmitted) startCountdown()
   }
   if (phase === 'reveal') {
     revealPhase.value = 'revealing'

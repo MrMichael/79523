@@ -36,6 +36,15 @@ export const useGameStore = defineStore('game', () => {
   const boxerGameScores = ref<Record<string, number>>({})
   const boxerWinPoints = ref(0)
   const boxerWinCounts = ref<Record<string, number>>({})
+  const boxerSubmitted = ref(false)
+
+  // Surrender (交粮) state — held here so a reconnect/reload can restore the overlay.
+  const surrenderActive = ref(false)
+  const surrenderPhase = ref<'losers_give' | 'winners_pick' | 'winners_return' | ''>('')
+  const surrenderRole = ref<'loser' | 'winner' | 'spectator'>('spectator')
+  const surrenderHand = ref<Card[]>([])
+  const surrenderInfo = ref('')
+  const surrenderPickCards = ref<{ playerId: string; playerName: string; card: Card }[]>([])
 
   const selectedCount = computed(() => selectedCards.value.length)
 
@@ -91,12 +100,20 @@ export const useGameStore = defineStore('game', () => {
     boxerGameScores.value = {}
     boxerWinPoints.value = 0
     boxerWinCounts.value = {}
+    boxerSubmitted.value = false
+    surrenderActive.value = false
+    surrenderPhase.value = ''
+    surrenderRole.value = 'spectator'
+    surrenderHand.value = []
+    surrenderInfo.value = ''
+    surrenderPickCards.value = []
   }
 
   return {
     myHand, tableCards, tablePlays, selectedCards, scores, isMyTurn, timeLeft, deckCount,
     phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
-    boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints,
+    boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints, boxerSubmitted,
+    surrenderActive, surrenderPhase, surrenderRole, surrenderHand, surrenderInfo, surrenderPickCards,
     selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick, reset,
   }
 })

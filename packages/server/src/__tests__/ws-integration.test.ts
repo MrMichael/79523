@@ -6,7 +6,7 @@ import type { Socket } from 'socket.io-client'
 import { getSmallestCard, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import { setupWebSocket } from '../ws'
-import { initDb, findUserById } from '../db'
+import { initDb, recentTotals } from '../db'
 import { registerUser, signToken } from '../auth'
 
 // ── Integration harness: real HTTP server + real socket.io clients ──
@@ -48,6 +48,7 @@ function waitFor<T = any>(socket: Socket, event: string, timeout = 5000): Promis
 async function connectClient(): Promise<Socket> {
   const user = registerUser(`u${Date.now() % 1_000_000}_${userSeq++}`, 'secret123')
   const socket = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
+  ;(socket as any).__user = user
   sockets.push(socket)
   await waitFor(socket, 'connect')
   return socket
@@ -76,6 +77,14 @@ async function startTwoPlayerGame() {
 }
 
 describe('WebSocket integration', () => {
+  // Always clear timing overrides — a test that times out never runs its own finally block,
+  // which would otherwise leak env vars into later tests.
+  afterEach(() => {
+    for (const k of ['BOT_DELAY_MS', 'FLOW_DELAY_MS', 'BOXER_DELAY_MS', 'BOXER_TIMEOUT_MS', 'TURN_TIMEOUT_MS', 'DISCONNECT_KICK_MS']) {
+      delete process.env[k]
+    }
+  })
+
   test('create → join → ready → game_started deals 5 cards to each', async () => {
     const { hs, gs, roomCode } = await startTwoPlayerGame()
     expect(roomCode).toMatch(/^[A-Z0-9]{6}$/)
@@ -103,21 +112,190 @@ describe('WebSocket integration', () => {
     expect(rr.scores.find((s: any) => s.id === leadId)).toBeDefined()
   }, 15000)
 
-  test('a player kicked mid-game does not stall it (turn passes to the survivor)', async () => {
-    process.env.DISCONNECT_KICK_MS = '100'
+  test('a game where nobody plays still auto-advances to the end', async () => {
+    // Regression: the turn-timer auto-play must play the engine's smallest card or the
+    // first-trick rule rejects it and the game deadlocks (both players idle ≈ both offline).
+    process.env.TURN_TIMEOUT_MS = '10'
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '5'
+    process.env.BOXER_TIMEOUT_MS = '20'
     try {
-      const { leadSocket, otherSocket, gs, hs, host } = await startTwoPlayerGame()
-      const survivorTurn = waitFor<any>(otherSocket, 'your_turn', 4000)
-      // The current player (lead) vanishes; after the kick delay the game must hand the turn over.
+      const { leadSocket } = await startTwoPlayerGame()
+      await waitFor(leadSocket, 'next_game_lead', 30000)
+    } finally {
+      delete process.env.TURN_TIMEOUT_MS
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_DELAY_MS
+      delete process.env.BOXER_TIMEOUT_MS
+    }
+  }, 40000)
+
+  test('a human who keeps punching is never auto-submitted by a stale boxer timer', async () => {
+    // Regression: game.boxerState is reused across rounds, so the human's per-round timeout
+    // used to survive into later rounds and auto-punch before they could click.
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '20'
+    process.env.BOXER_TIMEOUT_MS = '400'
+    process.env.TURN_TIMEOUT_MS = '5'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', {})
+      await waitFor<{ roomCode: string }>(host, 'room_created')
+      const filled = waitFor(host, 'players_updated')
+      host.emit('fill_ai')
+      await filled
+
+      let starts = 0
+      let rejected = 0
+      host.on('error', (d: any) => { if (/already submitted/i.test(d.message)) rejected++ })
+      host.on('boxer_start', (d: any) => { starts++; if (!d.spectators) host.emit('boxer_move', { move: 'rock' }) })
+
+      const started = waitFor(host, 'game_started')
+      host.emit('start_game')
+      await started
+      await waitFor(host, 'next_game_lead', 45000)
+
+      expect(starts).toBeGreaterThan(2) // the boxer actually ran several rounds
+      expect(rejected).toBe(0) // our clicks were never pre-empted by an auto-punch
+    } finally {
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_DELAY_MS
+      delete process.env.BOXER_TIMEOUT_MS
+      delete process.env.TURN_TIMEOUT_MS
+    }
+  }, 60000)
+
+  test('a player who leaves mid-game hands the turn to the survivor', async () => {
+    const { leadSocket, otherSocket } = await startTwoPlayerGame()
+    const survivorTurn = waitFor<any>(otherSocket, 'your_turn', 4000)
+    // Explicit leave (the tab closing / disconnect does NOT remove the seat — option B).
+    leadSocket.emit('leave_room')
+    const turn = await survivorTurn
+    expect(turn.hand).toBeDefined()
+  }, 15000)
+
+  test('a disconnected player keeps their seat mid-game; the turn auto-advances', async () => {
+    process.env.DISCONNECT_KICK_MS = '100'
+    process.env.TURN_TIMEOUT_MS = '300'
+    try {
+      const { leadSocket, otherSocket } = await startTwoPlayerGame()
+      const noLeave = waitFor(otherSocket, 'player_left', 800)
       leadSocket.disconnect()
-      const turn = await survivorTurn
+      // The absent player's turn is auto-played after the turn timeout, so the game keeps moving.
+      const turn = await waitFor<any>(otherSocket, 'your_turn', 15000)
       expect(turn.hand).toBeDefined()
-      // sanity: the survivor is the one still connected
-      const leadId = leadSocket === host ? hs.myId : gs.myId
-      expect(leadId).toBeTruthy()
+      // ...and the seat was NOT removed while the game is running.
+      await expect(noLeave).rejects.toThrow(/timeout/)
     } finally {
       delete process.env.DISCONNECT_KICK_MS
+      delete process.env.TURN_TIMEOUT_MS
     }
+  }, 25000)
+
+  test('reconnecting re-binds the seat and delivers full_state (with table play owners)', async () => {
+    const { host, leadSocket, otherSocket, hs, gs, roomCode } = await startTwoPlayerGame()
+    // Put a card on the table first, so we can check the play ownership is restored too.
+    const leadHand: Card[] = leadSocket === host ? hs.hand : gs.hand
+    const leadId = leadSocket === host ? hs.myId : gs.myId
+    const played = waitFor(otherSocket, 'play_made')
+    leadSocket.emit('play', { cards: [getSmallestCard(leadHand)!] })
+    await played
+
+    const user = (leadSocket as any).__user
+    leadSocket.disconnect()
+
+    const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
+    sockets.push(revived)
+    await waitFor(revived, 'connect')
+    const reconnected = waitFor(revived, 'player_reconnected')
+    const fullState = waitFor<any>(revived, 'full_state')
+    revived.emit('reconnect', { roomCode })
+    await reconnected
+    const fs = await fullState
+    expect(fs.myId).toBe(user.id)
+    expect(fs.roomCode).toBe(roomCode)
+    expect(fs.myHand.length).toBeGreaterThan(0)
+    expect(Object.keys(fs.playerNames ?? {}).length).toBeGreaterThan(0)
+    // tablePlays carries who played the current table cards — it drives per-player colours.
+    expect(fs.tablePlays[0].playerId).toBe(leadId)
+  }, 20000)
+
+  test('reconnecting with no game in progress routes the client back to the room', async () => {
+    // Same server branch as "the game ended while we were offline" (room.game === null), but
+    // deterministic — no need to wait for a random-length game to finish.
+    const host = await connectClient()
+    host.emit('create_room', {})
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+    const user = (host as any).__user
+    host.disconnect()
+
+    const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
+    sockets.push(revived)
+    await waitFor(revived, 'connect')
+    const backToRoom = waitFor<any>(revived, 'next_game_lead')
+    revived.emit('reconnect', { roomCode })
+    await backToRoom // without this the client would stay stuck on a finished/no game screen
+  }, 15000)
+
+  test('reconnecting during a boxer round re-sends the boxer prompt', async () => {
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '200'
+    process.env.BOXER_TIMEOUT_MS = '5000' // keep the round open long enough to reconnect
+    process.env.TURN_TIMEOUT_MS = '10'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', {})
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      // 4 players: with a small table the boxer often has zero score cards and is skipped,
+      // so guarantee a real boxer round (and thus a `boxer_start`).
+      for (let i = 0; i < 3; i++) {
+        const added = waitFor(host, 'players_updated')
+        host.emit('add_ai')
+        await added
+      }
+      const user = (host as any).__user
+
+      // Nobody plays manually — the turn timer auto-plays the human, so the game reliably
+      // reaches the boxer without depending on the test's play being legal.
+      const started = waitFor(host, 'game_started')
+      host.emit('start_game')
+      await started
+      // Whether a boxer round happens at all is random (it needs score cards left on the
+      // table); if this game skips it there is nothing to re-send.
+      const which = await Promise.race([
+        waitFor(host, 'boxer_start', 45000).then(() => 'boxer').catch(() => 'timeout'),
+        waitFor(host, 'next_game_lead', 45000).then(() => 'done').catch(() => 'timeout'),
+      ])
+      if (which !== 'boxer') return
+
+      host.disconnect()
+      const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
+      sockets.push(revived)
+      await waitFor(revived, 'connect')
+      const resent = waitFor<any>(revived, 'boxer_start')
+      revived.emit('reconnect', { roomCode })
+      const data = await resent
+      expect(Array.isArray(data.participants)).toBe(true)
+    } finally {
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_DELAY_MS
+      delete process.env.BOXER_TIMEOUT_MS
+      delete process.env.TURN_TIMEOUT_MS
+    }
+  }, 60000)
+
+  test('joining a room that is already in progress is rejected', async () => {
+    const { roomCode } = await startTwoPlayerGame()
+    const late = await connectClient()
+    const err = waitFor<any>(late, 'error')
+    late.emit('join_room', { roomCode })
+    expect((await err).message).toMatch(/in progress|full|not found/i)
   }, 15000)
 
   test('host can add / fill / remove AI; non-host and in-game attempts are rejected', async () => {
@@ -359,8 +537,9 @@ describe('WebSocket integration', () => {
       await waitFor(host, 'game_over', 30000)
       await waitFor(host, 'next_game_lead', 20000)
 
-      const row = findUserById(user.id)!
-      expect(row.wins + row.boxer_wins).toBeGreaterThan(0)
+      // The game is always logged for the account (play time + that game's wins/boxer wins),
+      // regardless of whether the host happened to win — so this is deterministic.
+      expect(recentTotals(Date.now() - 60_000).get(user.id)).toBeDefined()
     } finally {
       delete process.env.BOT_DELAY_MS
       delete process.env.FLOW_DELAY_MS

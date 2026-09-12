@@ -30,6 +30,7 @@ export function initGame(playerIds: string[], leadPlayerId?: string, isFirstGame
     bestPlayerId: null,
     passCount: 0,
     tableCards: [],
+    tablePlays: [],
     gameOver: false,
     roundParticipants: new Set(),
     isFirstTrick: isFirstGame,
@@ -85,6 +86,7 @@ export function handlePlay(
   const wasBeating = game.bestPlayerId !== null
 
   game.tableCards.push(...playerCards)
+  game.tablePlays.push({ playerId, cards: playerCards })
   game.currentBestPlay = { type: play.type, cards: playerCards, primaryRank: play.primaryRank }
   game.bestPlayerId = playerId
   game.roundParticipants.add(playerId)
@@ -291,71 +293,57 @@ export function getBoxerParticipants(game: ServerGame): string[] {
 }
 
 /** Execute surrender swap: bottom 2 give largest single to top 2, top 2 give one back (Design §4 上缴+换牌) */
-export function executeSurrenderSwap(game: ServerGame): {
+export function executeSurrenderSwap(game: ServerGame, pending?: { loserIds: string[]; winnerIds: string[] }): {
   swaps: { loserId: string; winnerId: string; gaveUpCard: Card; receivedCard: Card }[]
   nextLeadPlayerId: string
 } {
-  const sorted = [...game.players].sort((a, b) => b.score - a.score)
-  const playerCount = game.players.length
-
-  // <4 players: 1v1 swap
-  if (playerCount < 4) {
-    const winner = sorted[0]
-    const loser = sorted[sorted.length - 1]
-    const loserCard = getLargestSingle(loser.hand)
-    if (!loserCard) {
-      // Loser has no cards (finished with empty hand) — swap is a no-op
-      return { swaps: [], nextLeadPlayerId: loser.id }
-    }
-    loser.hand = removeCardFromHand(loser.hand, loserCard)
-    winner.hand.push(loserCard)
-    const winnerCard = getSmallestCard(winner.hand.filter(c => c.rank !== loserCard.rank || c.suit !== loserCard.suit))
-    if (!winnerCard) {
-      // Winner has no card to give back — undo the give (return loser's card)
-      winner.hand = removeCardFromHand(winner.hand, loserCard)
-      loser.hand.push(loserCard)
-      return { swaps: [], nextLeadPlayerId: loser.id }
-    }
-    winner.hand = removeCardFromHand(winner.hand, winnerCard)
-    loser.hand.push(winnerCard)
-    return {
-      swaps: [{ loserId: loser.id, winnerId: winner.id, gaveUpCard: loserCard, receivedCard: winnerCard }],
-      nextLeadPlayerId: determineNextLead([{ playerId: loser.id, card: loserCard }]),
-    }
-  }
-
-  // 4+ players: top 2 winners, bottom 2 losers
-  const topTwo = sorted.slice(0, 2)
-  const bottomTwo = sorted.slice(-2)
-
   interface SwapResult { loserId: string; winnerId: string; gaveUpCard: Card; receivedCard: Card }
   const swaps: SwapResult[] = []
   const surrenderedCards: { playerId: string; card: Card }[] = []
 
-  // Sort losers by their largest single (bigger card goes to 1st winner)
-  // Skip losers with empty hands (finished players)
-  const loserCards = bottomTwo
-    .flatMap(l => {
-      const card = getLargestSingle(l.hand)
-      return card ? [{ player: l, card }] : []
-    })
-    .sort((a, b) => compareCards(b.card, a.card))
+  // Pairing: the interactive surrender uses a fixed pairing (loser i ↔ winner i). A timeout
+  // fallback must use the *previous* game's ranking (passed in) — sorting the freshly dealt
+  // game by score pairs random players (all scores are 0). Without `pending` we fall back to
+  // the current scores (callers whose scores encode that ranking).
+  let pairs: { loserId: string; winnerId: string }[]
+  if (pending) {
+    pairs = pending.loserIds.map((loserId, i) => ({ loserId, winnerId: pending.winnerIds[i] ?? pending.winnerIds[0] }))
+  } else {
+    const sorted = [...game.players].sort((a, b) => b.score - a.score)
+    if (game.players.length < 4) {
+      pairs = [{ loserId: sorted[sorted.length - 1].id, winnerId: sorted[0].id }]
+    } else {
+      const topTwo = sorted.slice(0, 2)
+      pairs = sorted.slice(-2)
+        .flatMap(l => { const card = getLargestSingle(l.hand); return card ? [{ player: l, card }] : [] })
+        .sort((a, b) => compareCards(b.card, a.card))
+        .map((x, i) => ({ loserId: x.player.id, winnerId: topTwo[i].id }))
+    }
+  }
 
-  for (let i = 0; i < loserCards.length; i++) {
-    const { player: loser, card: gaveUpCard } = loserCards[i]
-    const winner = topTwo[i]
+  for (const { loserId, winnerId } of pairs) {
+    const loser = game.players.find(p => p.id === loserId)
+    const winner = game.players.find(p => p.id === winnerId)
+    if (!loser || !winner) continue
+    const gaveUpCard = getLargestSingle(loser.hand)
+    if (!gaveUpCard) continue // loser has no cards — swap is a no-op
     loser.hand = removeCardFromHand(loser.hand, gaveUpCard)
     winner.hand.push(gaveUpCard)
     const winnerCard = getSmallestCard(winner.hand.filter(c => c.rank !== gaveUpCard.rank || c.suit !== gaveUpCard.suit))
-    if (winnerCard) {
-      winner.hand = removeCardFromHand(winner.hand, winnerCard)
-      loser.hand.push(winnerCard)
-      swaps.push({ loserId: loser.id, winnerId: winner.id, gaveUpCard, receivedCard: winnerCard })
+    if (!winnerCard) {
+      // Winner has no card to give back — undo the give so hand sizes stay balanced.
+      winner.hand = removeCardFromHand(winner.hand, gaveUpCard)
+      loser.hand.push(gaveUpCard)
+      continue
     }
-    surrenderedCards.push({ playerId: loser.id, card: gaveUpCard })
+    winner.hand = removeCardFromHand(winner.hand, winnerCard)
+    loser.hand.push(winnerCard)
+    swaps.push({ loserId, winnerId, gaveUpCard, receivedCard: winnerCard })
+    surrenderedCards.push({ playerId: loserId, card: gaveUpCard })
   }
 
-  const nextLeadPlayerId = determineNextLead(surrenderedCards)
+  // Nothing swapable: still hand the lead to the single loser (matches the original no-op).
+  const nextLeadPlayerId = swaps.length === 0 && pairs.length === 1 ? pairs[0].loserId : determineNextLead(surrenderedCards)
   return { swaps, nextLeadPlayerId }
 }
 

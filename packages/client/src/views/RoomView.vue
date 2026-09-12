@@ -1,5 +1,8 @@
 <template>
   <div class="room">
+    <div class="room-topbar">
+      <button class="leave-btn" @click="leaveRoom">← 退出房间</button>
+    </div>
     <div class="room-header">
       <div class="code-display">
         <span class="code-text">{{ roomCode }}</span>
@@ -59,7 +62,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRoute } from 'vue-router'
 
 const { connect } = useSocket()
-const { roomCode, players, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom } = useRoom()
+const { roomCode, players, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom, leaveRoom } = useRoom()
 const gameStore = useGameStore()
 const auth = useAuthStore()
 const route = useRoute()
@@ -108,6 +111,13 @@ function copyCode() {
 .room {
   display: flex; flex-direction: column; height: 100%; padding: 1.5rem;
 }
+.room-topbar { display: flex; margin-bottom: 0.5rem; }
+.leave-btn {
+  padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+  background: rgba(255,255,255,0.05); color: #94a3b8; cursor: pointer;
+}
+.leave-btn:hover { color: #e2e8f0; border-color: rgba(255,255,255,0.25); }
 .room-header {
   text-align: center; margin-bottom: 1.5rem;
 }

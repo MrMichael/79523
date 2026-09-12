@@ -18,8 +18,11 @@ export function getAllRooms(): Room[] { return Array.from(rooms.values()) }
 export function joinRoom(code: string, player: Player): Room | null {
   const room = rooms.get(code)
   if (!room) return null
-  if (room.players.length >= room.maxPlayers) return null
   if (room.players.some(p => p.id === player.id)) return room
+  // No joining mid-game: a seat added now wouldn't be in game.players, which breaks
+  // turn routing. Reconnecting players restore their existing seat instead.
+  if (room.game) return null
+  if (room.players.length >= room.maxPlayers) return null
   room.players.push(player)
   return room
 }

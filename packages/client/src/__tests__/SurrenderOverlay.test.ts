@@ -4,40 +4,44 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { Suit, Rank } from '@79523/engine'
 
-// Capture the socket handlers SurrenderOverlay registers so we can drive the mounted component.
-const { fakeSocket, handlers } = vi.hoisted(() => {
-  const handlers: Record<string, ((...args: any[]) => void)[]> = {}
-  const fakeSocket = {
-    on: vi.fn((evt: string, fn: (...args: any[]) => void) => { (handlers[evt] ||= []).push(fn) }),
-    emit: vi.fn(),
-    disconnect: vi.fn(),
-    off: vi.fn(),
-  }
-  return { fakeSocket, handlers }
+const { fakeSocket } = vi.hoisted(() => {
+  const fakeSocket = { on: vi.fn(), emit: vi.fn(), disconnect: vi.fn(), off: vi.fn() }
+  return { fakeSocket }
 })
 
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => fakeSocket), Socket: class {} }))
 
 import { useSocket } from '../../src/composables/useSocket'
+import { useGameStore } from '../../src/stores/game'
 import SurrenderOverlay from '../../src/components/game/SurrenderOverlay.vue'
 
-const fire = (evt: string, payload?: any) => {
-  for (const fn of handlers[evt] || []) fn(payload)
-}
 const c = (suit: Suit, rank: Rank) => ({ suit, rank })
 
+// The overlay is a pure view over the store (useGame drives it from socket events), so the
+// tests set the store directly. That also means it survives a reconnect/reload.
 describe('SurrenderOverlay (mounted)', () => {
+  let store: ReturnType<typeof useGameStore>
+
   beforeEach(() => {
     setActivePinia(createPinia())
-    for (const k of Object.keys(handlers)) delete handlers[k]
     vi.clearAllMocks()
     useSocket().connect()
+    store = useGameStore()
   })
+
+  function show(phase: 'losers_give' | 'winners_pick' | 'winners_return', role: 'loser' | 'winner' | 'spectator', hand: any[] = [], extra: { info?: string; surrenderedCards?: any[] } = {}) {
+    store.surrenderActive = true
+    store.surrenderPhase = phase
+    store.surrenderRole = role
+    store.surrenderHand = hand
+    store.surrenderInfo = extra.info || ''
+    store.surrenderPickCards = extra.surrenderedCards || []
+  }
 
   it('loser: highlights only the largest card and emits surrender_give', async () => {
     const wrapper = mount(SurrenderOverlay)
     const hand = [c(Suit.Spade, Rank.Four), c(Suit.Spade, Rank.Seven), c(Suit.Heart, Rank.Five)]
-    fire('surrender_start', { phase: 'losers_give', yourRole: 'loser', hand, info: '请选择最大单张' })
+    show('losers_give', 'loser', hand, { info: '请选择最大单张' })
     await nextTick()
 
     expect(wrapper.find('.surrender-overlay').exists()).toBe(true)
@@ -59,7 +63,7 @@ describe('SurrenderOverlay (mounted)', () => {
   it('loser: cannot select a non-largest card', async () => {
     const wrapper = mount(SurrenderOverlay)
     const hand = [c(Suit.Spade, Rank.Four), c(Suit.Spade, Rank.Seven)]
-    fire('surrender_start', { phase: 'losers_give', yourRole: 'loser', hand, info: '' })
+    show('losers_give', 'loser', hand)
     await nextTick()
 
     await wrapper.findAll('.card-grid .card')[0].trigger('click') // Four, not largest
@@ -70,7 +74,7 @@ describe('SurrenderOverlay (mounted)', () => {
   it('winner: picks from the surrendered cards and emits surrender_pick', async () => {
     const wrapper = mount(SurrenderOverlay)
     const surrendered = [{ playerId: 'p2', playerName: '乙', card: c(Suit.Heart, Rank.King) }]
-    fire('surrender_start', { phase: 'winners_pick', yourRole: 'winner', hand: [], info: '挑一张', surrenderedCards: surrendered })
+    show('winners_pick', 'winner', [], { info: '挑一张', surrenderedCards: surrendered })
     await nextTick()
 
     const cards = wrapper.findAll('.card-grid .card')
@@ -83,7 +87,7 @@ describe('SurrenderOverlay (mounted)', () => {
   it('winner: returns a card and emits surrender_return', async () => {
     const wrapper = mount(SurrenderOverlay)
     const hand = [c(Suit.Club, Rank.Two), c(Suit.Diamond, Rank.Four)]
-    fire('surrender_start', { phase: 'winners_return', yourRole: 'winner', hand, info: '还一张' })
+    show('winners_return', 'winner', hand, { info: '还一张' })
     await nextTick()
 
     await wrapper.findAll('.card-grid .card')[0].trigger('click')
@@ -93,7 +97,7 @@ describe('SurrenderOverlay (mounted)', () => {
 
   it('spectator: sees no actionable controls', async () => {
     const wrapper = mount(SurrenderOverlay)
-    fire('surrender_start', { phase: 'losers_give', yourRole: 'spectator', hand: [c(Suit.Spade, Rank.Four)], info: '等待中' })
+    show('losers_give', 'spectator', [c(Suit.Spade, Rank.Four)], { info: '等待中' })
     await nextTick()
 
     expect(wrapper.find('.surrender-overlay').exists()).toBe(true)
@@ -101,13 +105,13 @@ describe('SurrenderOverlay (mounted)', () => {
     expect(wrapper.find('.card-grid').exists()).toBe(false)
   })
 
-  it('hides the overlay on next_game_lead', async () => {
+  it('hides when the store clears the surrender state', async () => {
     const wrapper = mount(SurrenderOverlay)
-    fire('surrender_start', { phase: 'losers_give', yourRole: 'loser', hand: [c(Suit.Spade, Rank.Four)], info: '' })
+    show('losers_give', 'loser', [c(Suit.Spade, Rank.Four)])
     await nextTick()
     expect(wrapper.find('.surrender-overlay').exists()).toBe(true)
 
-    fire('next_game_lead', {})
+    store.surrenderActive = false
     await nextTick()
     expect(wrapper.find('.surrender-overlay').exists()).toBe(false)
   })

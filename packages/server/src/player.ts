@@ -37,6 +37,10 @@ export function createAIPlayer(_roomCode: string): Player {
 }
 
 export function createPlayerForAccount(user: { id: string; username: string }): Player {
+  // Reuse the existing object so the global map and room.players never diverge
+  // (a second join_room / reconnect must not replace the object a room holds).
+  const existing = players.get(user.id)
+  if (existing) { existing.name = user.username; return existing }
   const player: Player = {
     id: user.id,
     name: user.username,

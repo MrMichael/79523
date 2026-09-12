@@ -37,6 +37,7 @@ function makeGame(overrides: Partial<ServerGame> = {}): ServerGame {
     bestPlayerId: null,
     passCount: 0,
     tableCards: [],
+    tablePlays: [],
     gameOver: false,
     roundParticipants: new Set(),
     isFirstTrick: false,
@@ -938,6 +939,23 @@ describe('executeSurrenderSwap', () => {
     expect(result.swaps[0].winnerId).toBe('w1')
     // nextLeadPlayerId is the player who surrendered the largest card
     expect(result.nextLeadPlayerId).toBeDefined()
+  })
+
+  test('with pending ids: pairs loser i ↔ winner i from the previous ranking (not new scores)', () => {
+    // The new game's scores are all 0, so a score-based sort would pair at random. The
+    // timeout fallback passes the previous game's ids and must use them.
+    const game = makeGame({
+      players: [
+        { id: 'a', hand: [c(Suit.Spade, Rank.Four)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'b', hand: [c(Suit.Heart, Rank.Five)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'c', hand: [c(Suit.Club, Rank.Six)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+        { id: 'd', hand: [c(Suit.Diamond, Rank.Seven)], score: 0, totalScore: 0, finished: false, hasBoxerBadge: false },
+      ],
+    })
+
+    const result = executeSurrenderSwap(game, { loserIds: ['d', 'c'], winnerIds: ['a', 'b'] })
+
+    expect(result.swaps.map(s => [s.loserId, s.winnerId])).toEqual([['d', 'a'], ['c', 'b']])
   })
 
   test('nextLeadPlayerId is set to the player who gave up the largest card', () => {
