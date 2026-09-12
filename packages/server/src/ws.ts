@@ -335,6 +335,7 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
 
   // Persist cumulative account stats (skips AI / removed accounts).
   persistGameStats(game.players.map(p => ({ id: p.id, rank1: sorted[0]?.id === p.id, boxerWins: p.boxerWins })))
+  log('GAME_END', roomCode, `rank1=${sorted[0]?.id} pc=${pc}`)
 
   // Save surrender info for after next game's cards are dealt
   room.pendingSurrender = {

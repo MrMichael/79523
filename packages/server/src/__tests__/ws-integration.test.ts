@@ -6,7 +6,7 @@ import type { Socket } from 'socket.io-client'
 import { getSmallestCard, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn } from '@79523/engine'
 import type { Card } from '@79523/engine'
 import { setupWebSocket } from '../ws'
-import { initDb } from '../db'
+import { initDb, findUserById } from '../db'
 import { registerUser, signToken } from '../auth'
 
 // ── Integration harness: real HTTP server + real socket.io clients ──
@@ -313,6 +313,59 @@ describe('WebSocket integration', () => {
       delete process.env.FLOW_DELAY_MS
       delete process.env.BOXER_TIMEOUT_MS
       delete process.env.BOXER_DELAY_MS
+    }
+  }, 60000)
+
+  test('a completed game persists the account stats', async () => {
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '5'
+    process.env.BOXER_TIMEOUT_MS = '60'
+    try {
+      const user = registerUser(`persist${Date.now() % 100000}`, 'secret123')
+      const host = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(user) } })
+      sockets.push(host)
+      await waitFor(host, 'connect')
+      host.emit('create_room', {})
+      await waitFor(host, 'room_created')
+      const added = waitFor<any>(host, 'players_updated')
+      host.emit('add_ai')
+      await added
+
+      let hostHand: Card[] = []
+      let tableEmpty = true
+      host.on('game_started', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('draw_card', (d: any) => { if (d.hand) hostHand = d.hand })
+      host.on('play_made', () => { tableEmpty = false })
+      host.on('round_result', () => { tableEmpty = true })
+      host.on('boxer_start', () => host.emit('boxer_move', { move: 'rock' }))
+      host.on('surrender_start', (d: any) => {
+        if (d.yourRole === 'loser') host.emit('surrender_give', { card: chooseSurrenderGive(d.hand) })
+        else if (d.yourRole === 'winner') {
+          if (d.phase === 'winners_pick' && d.surrenderedCards?.length) host.emit('surrender_pick', { card: chooseSurrenderPick(d.surrenderedCards.map((s: any) => s.card)) })
+          else if (d.phase === 'winners_return') host.emit('surrender_return', { card: chooseSurrenderReturn(d.hand) })
+        }
+      })
+      host.on('your_turn', (d: any) => {
+        if (d.hand) hostHand = d.hand
+        const s = getSmallestCard(hostHand)
+        if (tableEmpty && s) host.emit('play', { cards: [s] })
+        else host.emit('pass')
+      })
+
+      const started = waitFor(host, 'game_started')
+      host.emit('start_game')
+      await started
+      await waitFor(host, 'game_over', 30000)
+      await waitFor(host, 'next_game_lead', 20000)
+
+      const row = findUserById(user.id)!
+      expect(row.wins + row.boxer_wins).toBeGreaterThan(0)
+    } finally {
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_DELAY_MS
+      delete process.env.BOXER_TIMEOUT_MS
     }
   }, 60000)
 })
