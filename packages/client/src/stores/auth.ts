@@ -10,6 +10,9 @@ export interface AuthUser {
   wins: number
   boxerWins: number
   online: boolean
+  playSeconds24h: number
+  wins24h: number
+  boxerWins24h: number
 }
 
 export const useAuthStore = defineStore('auth', () => {

@@ -1,10 +1,11 @@
 import { describe, test, expect, beforeEach } from '@jest/globals'
-import { initDb, db, createUser, findUserByUsername, findUserById, listUsers, deleteUser, setRole, resetStats, addStats, leaderboard, countAdmins } from '../db'
+import { initDb, db, createUser, findUserByUsername, findUserById, listUsers, deleteUser, setRole, resetStats, addStats, leaderboard, countAdmins, addGameLog, recentTotals } from '../db'
 
 describe('db layer', () => {
   beforeEach(() => {
     initDb()
     db.exec('DELETE FROM users')
+    db.exec('DELETE FROM play_log')
   })
 
   test('create + find user', () => {
@@ -27,6 +28,18 @@ describe('db layer', () => {
     addStats(b.id, 1, 5)
     expect(leaderboard('wins').map(u => u.username)).toEqual(['a', 'b'])
     expect(leaderboard('boxerWins').map(u => u.username)).toEqual(['b', 'a'])
+  })
+
+  test('game log aggregates play time and wins within a window', () => {
+    const a = createUser('a', 'h')
+    const b = createUser('b', 'h')
+    const now = Date.now()
+    addGameLog(a.id, now, 120, 1, 2)
+    addGameLog(a.id, now - 1000, 60, 0, 1)
+    addGameLog(b.id, now - 25 * 60 * 60 * 1000, 999, 5, 5) // outside the 24h window
+    const m = recentTotals(now - 24 * 60 * 60 * 1000)
+    expect(m.get(a.id)).toEqual({ seconds: 180, wins: 1, boxerWins: 3 })
+    expect(m.get(b.id)).toBeUndefined()
   })
 
   test('reset + role + delete + countAdmins', () => {

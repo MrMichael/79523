@@ -3,11 +3,12 @@ import { createRoom, getAllRooms, getRoom, destroyRoom } from './room'
 import { registerUser, authenticate, signToken, publicUser } from './auth'
 import { requireAuth, requireAdmin } from './middleware'
 import type { AuthedRequest } from './middleware'
-import { listUsers, findUserById, deleteUser, setRole, resetStats, countAdmins, leaderboard } from './db'
-import type { Role } from './db'
+import { listUsers, findUserById, deleteUser, setRole, resetStats, countAdmins, leaderboard, recentTotals } from './db'
+import type { Role, UserRow } from './db'
 import { kickUser, kickUserEverywhere, isOnline } from './online'
 
 const router: Router = Router()
+const DAY_MS = 24 * 60 * 60 * 1000
 
 // ── auth ──
 router.post('/auth/register', (req, res) => {
@@ -40,12 +41,20 @@ router.delete('/auth/me', requireAuth, (req: AuthedRequest, res) => {
 
 // ── lobby ──
 router.get('/users', requireAuth, (_req, res) => {
-  res.json(listUsers().map(u => publicUser(u, isOnline(u.id))))
+  const recent = recentTotals(Date.now() - DAY_MS)
+  res.json(listUsers().map(u => publicUser(u, isOnline(u.id), recent.get(u.id))))
 })
 
 router.get('/leaderboard', requireAuth, (req, res) => {
+  const recent = recentTotals(Date.now() - DAY_MS)
+  const withRecent = (u: UserRow) => publicUser(u, isOnline(u.id), recent.get(u.id))
+  // 24h board ranks by wins earned in the last 24h.
+  if (req.query.metric === 'wins24h') {
+    res.json(listUsers().map(withRecent).sort((a, b) => b.wins24h - a.wins24h || b.boxerWins24h - a.boxerWins24h))
+    return
+  }
   const metric = req.query.metric === 'boxerWins' ? 'boxerWins' : 'wins'
-  res.json(leaderboard(metric).map(u => publicUser(u, isOnline(u.id))))
+  res.json(leaderboard(metric).map(withRecent))
 })
 
 router.get('/rooms', requireAuth, (_req, res) => {

@@ -334,8 +334,9 @@ function finishBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room[
   }
 
   // Persist cumulative account stats (skips AI / removed accounts).
-  persistGameStats(game.players.map(p => ({ id: p.id, rank1: sorted[0]?.id === p.id, boxerWins: p.boxerWins })))
-  log('GAME_END', roomCode, `rank1=${sorted[0]?.id} pc=${pc}`)
+  const playSeconds = Math.max(0, Math.round((Date.now() - (room.gameStartedAt ?? Date.now())) / 1000))
+  persistGameStats(game.players.map(p => ({ id: p.id, rank1: sorted[0]?.id === p.id, boxerWins: p.boxerWins, playSeconds })))
+  log('GAME_END', roomCode, `rank1=${sorted[0]?.id} pc=${pc} play=${playSeconds}s`)
 
   // Save surrender info for after next game's cards are dealt
   room.pendingSurrender = {
@@ -934,6 +935,7 @@ function startRoom(io: WsServer, room: Room) {
   const isFirstGame = !room.pendingSurrender
   const game = initGame(room.players.map(p => p.id), room.nextLeadPlayerId, isFirstGame)
   room.game = game
+  room.gameStartedAt = Date.now()
   delete room.nextLeadPlayerId
 
   if (room.pendingSurrender) {

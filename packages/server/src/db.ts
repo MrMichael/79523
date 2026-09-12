@@ -32,7 +32,20 @@ export function initDb(): void {
       boxer_wins INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS play_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      seconds INTEGER NOT NULL,
+      wins INTEGER NOT NULL DEFAULT 0,
+      boxer_wins INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_play_log_user_at ON play_log (user_id, at);
   `)
+  // Migrate tables created before the wins columns existed.
+  const playCols = (db.prepare('PRAGMA table_info(play_log)').all() as { name: string }[]).map(c => c.name)
+  if (!playCols.includes('wins')) db.exec('ALTER TABLE play_log ADD COLUMN wins INTEGER NOT NULL DEFAULT 0')
+  if (!playCols.includes('boxer_wins')) db.exec('ALTER TABLE play_log ADD COLUMN boxer_wins INTEGER NOT NULL DEFAULT 0')
   // Seed admin from env if configured and missing. Other registrations are normal users.
   const username = process.env.ADMIN_USERNAME
   const password = process.env.ADMIN_PASSWORD
@@ -80,6 +93,27 @@ export function resetStats(id: string): void {
 }
 export function addStats(id: string, wins: number, boxerWins: number): void {
   db.prepare('UPDATE users SET wins = wins + ?, boxer_wins = boxer_wins + ? WHERE id = ?').run(wins, boxerWins, id)
+}
+
+/** Record one finished game for an account: play time plus the wins/boxer wins it earned. */
+export function addGameLog(userId: string, at: number, seconds: number, wins: number, boxerWins: number): void {
+  db.prepare('INSERT INTO play_log (user_id, at, seconds, wins, boxer_wins) VALUES (?, ?, ?, ?, ?)').run(
+    userId, at, Math.max(0, Math.round(seconds)), wins, boxerWins
+  )
+}
+
+export interface RecentTotals {
+  seconds: number
+  wins: number
+  boxerWins: number
+}
+
+/** Per-account totals (play seconds / wins / boxer wins) for games recorded at/after `since`. */
+export function recentTotals(since: number): Map<string, RecentTotals> {
+  const rows = db.prepare(
+    'SELECT user_id, SUM(seconds) AS seconds, SUM(wins) AS wins, SUM(boxer_wins) AS boxerWins FROM play_log WHERE at >= ? GROUP BY user_id'
+  ).all(since) as { user_id: string; seconds: number; wins: number; boxerWins: number }[]
+  return new Map(rows.map(r => [r.user_id, { seconds: r.seconds, wins: r.wins, boxerWins: r.boxerWins }]))
 }
 export function leaderboard(metric: 'wins' | 'boxerWins'): UserRow[] {
   const order = metric === 'boxerWins' ? 'boxer_wins DESC, wins DESC' : 'wins DESC, boxer_wins DESC'

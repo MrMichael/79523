@@ -3,13 +3,21 @@
     <div class="metric-tabs">
       <button :class="{ active: metric === 'wins' }" @click="setMetric('wins')">胜局榜</button>
       <button :class="{ active: metric === 'boxerWins' }" @click="setMetric('boxerWins')">拳王榜</button>
+      <button :class="{ active: metric === 'wins24h' }" @click="setMetric('wins24h')">近24小时</button>
     </div>
     <div v-for="(u, i) in rows" :key="u.id" class="rank-row">
       <span class="pos">{{ i + 1 }}</span>
       <span class="dot" :class="{ online: u.online }"></span>
       <span class="name">{{ u.username }}</span>
-      <span class="stat">🏆 {{ u.wins }}</span>
-      <span class="stat">🥊 {{ u.boxerWins }}</span>
+      <template v-if="metric === 'wins24h'">
+        <span class="stat">🏆 {{ u.wins24h }}</span>
+        <span class="stat">🥊 {{ u.boxerWins24h }}</span>
+        <span class="stat">⏱ {{ formatDuration(u.playSeconds24h) }}</span>
+      </template>
+      <template v-else>
+        <span class="stat">🏆 {{ u.wins }}</span>
+        <span class="stat">🥊 {{ u.boxerWins }}</span>
+      </template>
     </div>
     <p v-if="!rows.length" class="empty">暂无数据</p>
   </div>
@@ -18,11 +26,13 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { apiFetch } from '@/api'
+import { formatDuration } from '@/format'
 
-const metric = ref<'wins' | 'boxerWins'>('wins')
+type Metric = 'wins' | 'boxerWins' | 'wins24h'
+const metric = ref<Metric>('wins')
 const rows = ref<any[]>([])
 async function load() { rows.value = await apiFetch(`/api/leaderboard?metric=${metric.value}`) }
-function setMetric(m: 'wins' | 'boxerWins') { metric.value = m }
+function setMetric(m: Metric) { metric.value = m }
 onMounted(load)
 watch(metric, load)
 </script>

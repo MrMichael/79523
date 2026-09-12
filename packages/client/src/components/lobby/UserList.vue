@@ -4,6 +4,7 @@
       <span class="dot" :class="{ online: u.online }"></span>
       <span class="name">{{ u.username }}</span>
       <span class="role" v-if="u.role === 'admin'">管理员</span>
+      <span class="playtime" title="最近 24 小时对局时长">⏱ {{ fmt(u.playSeconds24h) }}</span>
       <span class="stats">🏆 {{ u.wins }} &nbsp; 🥊 {{ u.boxerWins }}</span>
     </div>
     <p v-if="!users.length" class="empty">暂无用户</p>
@@ -12,9 +13,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-const props = defineProps<{ users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean }[] }>()
+import { formatDuration } from '@/format'
+const props = defineProps<{ users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean; playSeconds24h?: number }[] }>()
 // Online users first, then by username.
 const sorted = computed(() => [...props.users].sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username)))
+const fmt = formatDuration
 </script>
 
 <style scoped>
@@ -28,5 +31,6 @@ const sorted = computed(() => [...props.users].sort((a, b) => Number(b.online) -
 .name { flex: 1; color: #e2e8f0; font-weight: 500; }
 .role { font-size: 0.68rem; color: #fbbf24; border: 1px solid rgba(251,191,36,0.4); border-radius: 4px; padding: 0 0.3rem; }
 .stats { color: #94a3b8; font-size: 0.78rem; }
+.playtime { color: #64748b; font-size: 0.74rem; }
 .empty { color: #475569; text-align: center; padding: 0.5rem; }
 </style>

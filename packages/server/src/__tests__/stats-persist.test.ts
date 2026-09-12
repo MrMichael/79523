@@ -1,9 +1,9 @@
 import { describe, test, expect, beforeEach } from '@jest/globals'
-import { initDb, db, createUser, findUserById } from '../db'
+import { initDb, db, createUser, findUserById, recentTotals } from '../db'
 import { persistGameStats } from '../stats'
 
 describe('persistGameStats', () => {
-  beforeEach(() => { initDb(); db.exec('DELETE FROM users') })
+  beforeEach(() => { initDb(); db.exec('DELETE FROM users'); db.exec('DELETE FROM play_log') })
 
   test('adds wins to first place and boxerWins to champions', () => {
     const a = createUser('a', 'h')
@@ -16,13 +16,14 @@ describe('persistGameStats', () => {
     expect(findUserById(b.id)).toMatchObject({ wins: 0, boxer_wins: 0 })
   })
 
-  test('skips ids that are not accounts (AI)', () => {
+  test('records play time and wins for accounts only', () => {
     const a = createUser('a', 'h')
     persistGameStats([
-      { id: a.id, rank1: true, boxerWins: 0 },
-      { id: 'ai-1-xyz', rank1: false, boxerWins: 5 },
+      { id: a.id, rank1: true, boxerWins: 2, playSeconds: 300 },
+      { id: 'ai-1-xyz', rank1: true, boxerWins: 2, playSeconds: 300 },
     ])
-    expect(findUserById(a.id)!.wins).toBe(1)
-    expect(findUserById('ai-1-xyz')).toBeUndefined()
+    const m = recentTotals(Date.now() - 60_000)
+    expect(m.get(a.id)).toEqual({ seconds: 300, wins: 1, boxerWins: 2 })
+    expect(m.get('ai-1-xyz')).toBeUndefined()
   })
 })

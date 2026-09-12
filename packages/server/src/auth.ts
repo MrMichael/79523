@@ -26,8 +26,20 @@ export function verifyToken(token: string): { uid: string; role: Role } | null {
   }
 }
 
-export function publicUser(u: UserRow, online = false) {
-  return { id: u.id, username: u.username, role: u.role, wins: u.wins, boxerWins: u.boxer_wins, online }
+export interface RecentStats { seconds?: number; wins?: number; boxerWins?: number }
+
+export function publicUser(u: UserRow, online = false, recent: RecentStats = {}) {
+  return {
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    wins: u.wins,
+    boxerWins: u.boxer_wins,
+    online,
+    playSeconds24h: recent.seconds ?? 0,
+    wins24h: recent.wins ?? 0,
+    boxerWins24h: recent.boxerWins ?? 0,
+  }
 }
 
 export function registerUser(username: string, password: string): UserRow {

@@ -20,6 +20,7 @@ export interface Room {
   game: ServerGame | null
   hostId?: string
   emptiedAt?: number  // last time the room had no human players (for 10-min cleanup)
+  gameStartedAt?: number  // wall-clock ms when the current game started (for play-time stats)
   nextLeadPlayerId?: string  // From surrender swap, for next game's first trick (Design §4.2)
   surrenderState?: SurrenderState | null
   pendingSurrender?: { winnerIds: string[]; loserIds: string[] }
@@ -100,7 +101,7 @@ export interface ServerEvents {
   room_stats_updated: (data: { stats: { id: string; name: string; wins: number; boxerWins: number }[] }) => void
   boxer_champion: (data: { playerId: string; scores: { id: string; score: number }[] }) => void
   boxer_tiebreak: (data: { participants: string[]; info: string; wins?: number }) => void
-  lobby_users_updated: (data: { users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean }[] }) => void
+  lobby_users_updated: (data: { users: { id: string; username: string; role: string; wins: number; boxerWins: number; online: boolean; playSeconds24h: number; wins24h: number; boxerWins24h: number }[] }) => void
   lobby_rooms_updated: (data: { rooms: { code: string; hostId?: string; playerCount: number; maxPlayers: number; inGame: boolean }[] }) => void
 }
 
