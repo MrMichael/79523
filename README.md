@@ -118,6 +118,7 @@ npx pnpm start                 # 即 tsx src/index.ts
 ```bash
 cp .env.example .env      # 填 JWT_SECRET / ADMIN_PASSWORD / FRPC_TOKEN
 docker compose up -d --build
+# 或一键： ./deploy.sh   （./deploy.sh --test 先跑测试；-h 看用法）
 ```
 
 - **`app`**：构建镜像（Node 22，含 pnpm/vite），单端口 3000 托管前端 + API + socket.io；SQLite 落在 `./data/app.db`。

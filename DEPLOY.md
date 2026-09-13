@@ -50,6 +50,18 @@ curl -sk -o /dev/null -w '%{http_code}\n' https://<入口>/     # 200
 
 局域网也可直接访问 `http://<本机IP>:3000`。
 
+## 一键脚本 `deploy.sh`
+
+```bash
+./deploy.sh              # 构建镜像 + 重启 app（隧道不动）+ 等待健康 + 打印入口
+./deploy.sh --test       # 先跑完整测试，再部署
+./deploy.sh --no-build   # 只重启（改了 .env 时）
+./deploy.sh --all        # 重建并重启全部（含 sakura1 隧道）
+./deploy.sh -h           # 帮助
+```
+
+脚本会校验 `.env` 必填项，构建失败时**中止并退出非零**（不会用旧镜像“假成功”），成功后打印容器状态与公网入口。
+
 ## 更新流程（改代码后）
 
 ```bash
@@ -72,6 +84,8 @@ curl -s localhost:3000/health
 - 只改了 `.env`（端口/密码等）→ 不需要 `--build`，直接 `docker compose up -d`。
 - 前端/服务端代码改动才需要 `--build`。
 - `./data` 是挂载卷，账号与战绩**不会**因重建丢失。
+
+> 也可以用一键脚本：`./deploy.sh --test`（等价于跑测试 + 重建重启 + 等健康）。
 
 ## 运维速查
 

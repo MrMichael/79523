@@ -2,13 +2,17 @@
 # Node 22（better-sqlite3 13 的 Node 20 预编译包会段错误）；全量版自带编译工具链，免 apt。
 FROM node:22
 
-RUN corepack enable && corepack prepare pnpm@8.15.9 --activate
+# BuildKit 会把宿主机的 HTTP(S)_PROXY 自动注入构建容器；此环境直连即可，
+# 清掉以免 npm/pnpm 去连不存在的本地代理（如 127.0.0.1:7890）。
+RUN unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy \
+ && npm i -g pnpm@8.15.9
 
 WORKDIR /app
 COPY . .
 
-RUN pnpm install --frozen-lockfile
-RUN pnpm build
+RUN unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy \
+ && pnpm install --frozen-lockfile \
+ && pnpm build
 
 ENV NODE_ENV=production \
     PORT=3000 \
