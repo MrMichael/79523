@@ -1,0 +1,33 @@
+services:
+  # 应用：单端口（3000）同时提供前端页面 + /api + /socket.io
+  app:
+    build:
+      context: .
+    image: 79523-app
+    restart: always
+    environment:
+      PORT: "3000"
+      DB_PATH: /data/app.db
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 里设置 JWT_SECRET}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 里设置 ADMIN_PASSWORD}
+    volumes:
+      # SQLite 持久化（首次启动会按上面的 ADMIN_* 创建管理员）
+      - ./data:/data
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # SakuraFrp 内网穿透：隧道在面板配置（HTTP/HTTPS -> 本地 127.0.0.1:3000，开启自动 HTTPS）
+  sakura1:
+    image: natfrp.com/frpc
+    restart: always
+    network_mode: host
+    command: --disable_log_color -f ${FRPC_TOKEN:?请在 .env 里设置 FRPC_TOKEN}
+    depends_on:
+      app:
+        condition: service_healthy

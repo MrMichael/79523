@@ -111,6 +111,26 @@ npx pnpm start                 # 即 tsx src/index.ts
 
 > 服务端与引擎以 **TypeScript 源码**运行（用 `tsx`，已列为服务端 `dependencies`），所以 `npx pnpm install --prod` 后即可 `npx pnpm start`。`build` 只构建前端、并对服务端做类型检查。
 
+### Docker / docker compose（推荐）
+
+```bash
+cp .env.example .env      # 填 JWT_SECRET / ADMIN_PASSWORD / FRPC_TOKEN
+docker compose up -d --build
+```
+
+- **`app`**：构建镜像（Node 22，含 pnpm/vite），单端口 3000 托管前端 + API + socket.io；SQLite 落在 `./data/app.db`。
+- **`sakura1`**：SakuraFrp 的 frpc（`network_mode: host`），按面板里的隧道（HTTP/HTTPS → 本地 `127.0.0.1:3000`，开启自动 HTTPS）自动连上；启动后日志会打印访问入口。
+
+常用命令：
+
+```bash
+docker compose ps                 # 状态
+docker compose logs -f sakura1    # 穿透日志（含入口域名/端口）
+docker compose down               # 停服
+```
+
+> `.env` 已被 `.gitignore` 忽略。**首次启动**按 `.env` 的 `ADMIN_*` 创建管理员；之后改 `.env` 不会更新已有密码 —— 要改需先停服并清空 `./data`（数据属主是容器 root，可在容器里删：`docker run --rm -v "$PWD/data:/data" node:22 sh -c 'rm -rf /data/*'`）。
+
 ### 环境变量
 
 | 变量 | 默认 | 说明 |
