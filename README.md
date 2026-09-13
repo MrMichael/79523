@@ -39,6 +39,8 @@ packages/
 npx pnpm dev           # 同时启动前后端
 npx pnpm dev:server    # 仅服务端 :3000
 npx pnpm dev:client    # 仅前端 :5173
+npx pnpm build         # 构建前端 -> packages/client/dist（并对服务端做类型检查）
+npx pnpm start         # 生产启动：服务端单端口同时托管前端 + API + socket.io
 npx pnpm test          # 引擎 + 服务端 + 前端测试
 npx pnpm test:engine   # 引擎测试 (vitest)
 npx pnpm test:server   # 服务端测试 (jest)
@@ -87,6 +89,69 @@ npx pnpm dev
 
 其他设备访问 `http://<本机IP>:5173`。
 
+## 生产部署（单端口 + 内网穿透）
+
+生产模式下 **服务端同时托管前端页面 + `/api` + `/socket.io`**，所以只需要对外暴露**一个端口**（默认 3000），前后端天然同源（客户端用的是相对路径与 `io('/')`）。
+
+### 本机运行
+
+```bash
+npx pnpm install
+npx pnpm build                 # 前端 -> packages/client/dist（并做服务端类型检查）
+
+cd packages/server
+PORT=3000 \
+DB_PATH=/srv/79523/app.db \
+JWT_SECRET="$(openssl rand -hex 32)" \
+ADMIN_USERNAME=admin ADMIN_PASSWORD='换成强密码' \
+npx pnpm start                 # 即 tsx src/index.ts
+```
+
+打开 `http://<本机IP>:3000`。启动日志会打印 `[server] serving client from .../client/dist`。
+
+> 服务端与引擎以 **TypeScript 源码**运行（用 `tsx`），因此生产启动也需要 devDependencies（`npx pnpm install` 默认会装）。`build` 只构建前端、并对服务端做类型检查。
+
+### 环境变量
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `PORT` | `3000` | 监听端口（frp 本地端口填这个） |
+| `DB_PATH` | `cwd/data/app.db` | SQLite 路径，**建议固定绝对路径**以免换目录丢库 |
+| `JWT_SECRET` | `dev-secret-change-me` | **生产必须改**，否则 token 可被伪造 |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | **首次启动时**若该用户不存在则创建管理员 |
+| `CLIENT_DIST` | `packages/client/dist` | 可选，自定义前端产物目录 |
+| `DISCONNECT_KICK_MS` | `180000` | 离线多久后移出房间（对局中不移出） |
+| `TURN_TIMEOUT_MS` | `30000` | 回合计时（超时自动过牌） |
+
+### 内网穿透（SakuraFrp / frp）+ 自动 HTTPS
+
+> 参考文档：<https://doc.natfrp.com/frpc/manual.html#feature-auto-https>（面板字段以官方为准）
+
+1. SakuraFrp 面板新建**隧道**：类型 **HTTP/HTTPS**，本地地址 `127.0.0.1`，本地端口 = 上面的 `PORT`（默认 `3000`）。
+2. 开启**自动 HTTPS**（或选支持自动 HTTPS 的节点 + 自有域名 CNAME）。
+3. 下载 frpc，用面板给的 token 运行（配置格式以文档为准，大致形如）：
+
+```toml
+serverAddr = "xx.natfrp.com"
+serverPort = 7000
+auth.token = "<你的 token>"
+
+[[proxies]]
+name = "79523"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3000
+subdomain = "yourname"     # -> yourname.natfrp.com
+```
+
+4. 访问 `https://yourname.natfrp.com`。页面为 https 后 socket.io 会自动用 `wss`（同源）。
+
+注意事项：
+- 确认隧道/节点**允许 WebSocket**（socket.io 优先用 ws；万一不行会退化为 polling，仍可玩但更慢）。
+- 实时对战对延迟敏感，优先选离玩家近、带宽好的节点。
+- 用 `pm2` / `systemd` 守护进程；只暴露隧道，不要直接对公网开 3000。
+- 先设好 `ADMIN_USERNAME/ADMIN_PASSWORD` 再首次启动（管理员只在不存在时创建）。
+
 ### 防火墙配置
 
 如果局域网设备无法连接，放行端口：
@@ -106,7 +171,7 @@ sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 | 层 | 工具 | 测试数 |
 |---|------|--------|
 | 引擎 | vitest | 85 |
-| 服务端 | jest | 259 |
-| 客户端 | vitest | 49 |
+| 服务端 | jest | 270 |
+| 客户端 | vitest | 56 |
 | E2E | playwright | 1 |
-| **总计** | | **394** |
+| **总计** | | **412** |

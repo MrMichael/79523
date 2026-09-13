@@ -5,6 +5,8 @@
     "dev": "pnpm --filter @79523/server dev & pnpm --filter @79523/client dev",
     "dev:server": "pnpm --filter @79523/server dev",
     "dev:client": "pnpm --filter @79523/client dev",
+    "build": "pnpm --filter @79523/client build && pnpm --filter @79523/server build",
+    "start": "pnpm --filter @79523/server start",
     "test": "pnpm --filter @79523/engine test && pnpm --filter @79523/server test && pnpm --filter @79523/client test",
     "test:engine": "pnpm --filter @79523/engine test",
     "test:server": "pnpm --filter @79523/server test",
