@@ -109,7 +109,7 @@ npx pnpm start                 # 即 tsx src/index.ts
 
 打开 `http://<本机IP>:3000`。启动日志会打印 `[server] serving client from .../client/dist`。
 
-> 服务端与引擎以 **TypeScript 源码**运行（用 `tsx`），因此生产启动也需要 devDependencies（`npx pnpm install` 默认会装）。`build` 只构建前端、并对服务端做类型检查。
+> 服务端与引擎以 **TypeScript 源码**运行（用 `tsx`，已列为服务端 `dependencies`），所以 `npx pnpm install --prod` 后即可 `npx pnpm start`。`build` 只构建前端、并对服务端做类型检查。
 
 ### 环境变量
 
