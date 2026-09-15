@@ -166,7 +166,8 @@ CREATE TABLE users (
 ## 14.1 断线与重连（移动端）
 
 - **socket.io 服务端参数**：`pingInterval 25s / pingTimeout 60s`，容忍手机切后台约 1 分钟不回应 ping。
-- **对局中不移出（方案 B）**：掉线只标记 `connected=false`，**座位保留到本局结束**；缺席玩家的回合由回合计时器（`TURN_TIMEOUT_MS`，默认 30s）自动 pass / 出最小牌，保证对局不卡死。
+- **对局中不移出（方案 B）**：掉线只标记 `connected=false`，**座位保留到本局结束**——但**仅当还有其它真人在线**时；若全体真人都已掉线，宽限期（`DISCONNECT_KICK_MS`，默认 180s）到即**放弃本局并清座/解散房间**（否则对局会以 `TURN_TIMEOUT_MS`/回合自动打很久，房间一直显示“进行中”）。缺席玩家的回合由回合计时器（默认 30s）自动 pass / 出最小牌，保证对局不卡死。
+- **删账号会连房间一起清**：`DELETE /auth/me` 与 `DELETE /admin/users/:id` 除了断 socket，还调 `removeAccountFromRooms()` 把该账号从房间/对局中移除，避免遗留“僵尸房间”。
 - **重连即接管**：客户端 socket `connect` 后，若当前在 `/room/:code` 或 `/game/:code`，自动 `emit('reconnect', { roomCode })`；服务端更新 `socketId`、置 `connected=true`、重新加入房间、广播 `players_updated`、并向该 socket 单发 `full_state`（含手牌与桌面 `tableCards`），玩家随即恢复操作。若重连时**无进行中对局**（`room.game` 为空），则补发 `next_game_lead`，客户端回到房间页（否则会卡在已结束的对局页）。
 - **对局中不接受新玩家**：`join_room` 在 `room.game` 存在时拒绝（否则新座位不在 `game.players` 中，会破坏回合路由）；重连必须走 `reconnect`。
 - **对局页可作入口**：`GameView` 挂载时也会 `connect()` 并注册 room+game 监听（`useRoom.setupListeners`）。手机切应用时后台页常被系统重载，若对局页不建连/不注册监听，重连后就是一个空壳（无手牌、无玩家）。
