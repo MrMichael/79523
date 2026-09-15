@@ -95,12 +95,10 @@ CREATE TABLE users (
 - 新增 `start_game`（任意已鉴权且在该房间的玩家）：校验 `players.length >= 2 && room.game == null` → 开局（含 `pendingSurrender` 流程）→ 否则回 `error`。
 
 **房间生命周期（避免僵尸房）**：
-- 房间内**不再有真人玩家**时进入**空置**状态，**保留 10 分钟**，超时自动清理（由定时器执行）。
-- 空置计时以"最后一名真人离开的时间"为准（`Room` 新增 `emptiedAt`），**而非创建时间**。
-- 含 AI 的房间：真人全部离开后同样按空置计时，10 分钟后**连同残留 AI 一并清理**。
-- 真人玩家**断线后 30s 踢出**（沿用现有机制）触发空置判定。
-- 空置房间**不出现在大厅"可加入"列表**；保留期内房号仍有效，凭房号加入即恢复为活跃（若无房主则加入者成为房主）。
-- **保留并使用 `cleanupStaleRooms`**，改为**定时执行**且基于 `emptiedAt`（当前实现基于 `createdAt` 且未接线，需修正）。
+- **最后一个真人离开时立即解散房间**（连同残留 AI 一并销毁）；不再有 10 分钟空置保留期，`emptiedAt` / `cleanupStaleRooms` / 定时器均已移除。
+- **一个账号同一时刻只在一个房间**：`create_room` / `join_room` / `reconnect` 之前先 `leaveCurrentRoom()` 退出旧房间。否则账号共享的 `Player` 对象会同时挂在两个房间，其 `socketId` 指向错误牌桌，`your_turn` / `full_state` 串房（表现为“手牌变来变去”）。
+- **主动离开**：`leave_room` 走同一 `leaveCurrentRoom()`；对局中先 `handlePlayerLeave` 把回合并给下家。
+- 真人玩家**断线在对局中不移出**（方案 B），仅等待其重连；轮到他时回合计时器照常自动出牌。
 
 ## 9. 大厅（需求 2）
 
@@ -174,7 +172,8 @@ CREATE TABLE users (
 - **对局页可作入口**：`GameView` 挂载时也会 `connect()` 并注册 room+game 监听（`useRoom.setupListeners`）。手机切应用时后台页常被系统重载，若对局页不建连/不注册监听，重连后就是一个空壳（无手牌、无玩家）。
 - **房间内玩家对象唯一**：`createPlayerForAccount` 复用已有对象，保证全局账号表与 `room.players` 不会指向不同对象（否则 `socketId`/`connected` 会错位）。
 - **重连后恢复展示**：`full_state` 含 `roomCode`、`tablePlays`（桌面每张牌的玩家归属，用于按玩家配色）与 `playerNames`；客户端收到 `full_state` 时若不在对局页则跳转 `/game/:code`（修复“掉线玩家漏掉 `game_started`、恢复后停在房间页”）。若重连时正处于拳王环节，服务端额外补发 `boxer_start`（带 `submitted` 标记）；若正处于交粮环节，补发 `surrender_start`（不重置其超时）。
-- **交粮/拳王 UI 由 store 驱动**：`SurrenderOverlay` 不自己挂 socket 监听（子组件挂载早于父组件 `connect()`，重载后会漏掉事件），改由 `useGame` 写入 store（`surrenderActive/phase/role/hand/info/pickCards`），遮罩只读 store；重连补发的 `surrender_start` 因此能正常恢复。
+- **对局内掉线提示**：对局中玩家状态（`connected`）随 `game_started` / `full_state` / `players_updated` 下发；`PlayerSlot` 对离线玩家灰显并显示「📴 掉线」，轮到离线玩家时 `TurnIndicator` 显示「⏳ XX 掉线中，等待重连…」（回合计时器仍会替他自动出牌）。
+- **交粮/拳王 UI 由 store 驱动**:`SurrenderOverlay` 不自己挂 socket 监听(子组件挂载早于父组件 `connect()`,重载后会漏掉事件),改由 `useGame` 写入 store(`surrenderActive/phase/role/hand/info/pickCards`),遮罩只读 store;重连补发的 `surrender_start` 因此能正常恢复。
 - **回合计时器自动出牌**：使用引擎的 `getSmallestCard`（同点数按花色比较）而非按 rank 手写取最小；否则首回合"必须包含最小牌"校验会失败，导致该回合不再推进（双方都挂机/离线时对局死住）。
 - **拳王出拳计时器按回合清理**：`game.boxerState` 在整个拳王阶段是**同一个对象**（就地复用），所以 `scheduleBotBoxer` 的 `cur !== bs` 守卫拦不住上一轮的计时器；回合结算/新回合时调用 `clearBoxerTimers`（`processBoxerRound`/`resolveBoxerTiebreakRound`/`startBoxer*Round`/`finishBoxerFlow`），否则上一轮为真人排的超时会**在后面的回合提前替他出拳**（玩家“没机会点”）。
 - **交粮超时自动完成**：使用上一局名次（`pendingSurrender` 的 `loserIds/winnerIds`，固定配对 loser i ↔ winner i）；不能按新一局分数排序（开局分数全 0，会等于随机配对）；赢家无可回牌时回退本次给牌，保证手牌数不变。
