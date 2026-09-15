@@ -6,6 +6,7 @@ import type { AuthedRequest } from './middleware'
 import { listUsers, findUserById, deleteUser, setRole, resetStats, countAdmins, leaderboard, recentTotals } from './db'
 import type { Role, UserRow } from './db'
 import { kickUser, kickUserEverywhere, isOnline } from './online'
+import { removeAccountFromRooms } from './ws'
 
 const router: Router = Router()
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -34,6 +35,7 @@ router.get('/auth/me', requireAuth, (req: AuthedRequest, res) => {
 
 router.delete('/auth/me', requireAuth, (req: AuthedRequest, res) => {
   const id = req.user!.id
+  removeAccountFromRooms(id)
   kickUserEverywhere(id)
   deleteUser(id)
   res.json({ ok: true })
@@ -102,6 +104,7 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, (req: AuthedRequest
   const target = findUserById(req.params.id)
   if (!target) { res.status(404).json({ error: '用户不存在' }); return }
   if (target.role === 'admin' && countAdmins() <= 1) { res.status(400).json({ error: '至少保留一个管理员' }); return }
+  removeAccountFromRooms(req.params.id)
   kickUser(req.params.id)
   deleteUser(req.params.id)
   res.json({ ok: true })

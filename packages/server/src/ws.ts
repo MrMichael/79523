@@ -7,7 +7,7 @@ import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBo
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn, getSmallestCard } from '@79523/engine'
 import { verifyToken } from './auth'
 import { findUserById } from './db'
-import { bindOnline, markOnline, markOffline } from './online'
+import { bindOnline, markOnline, markOffline, getIO } from './online'
 import { broadcastLobby } from './lobby'
 import { persistGameStats } from './stats'
 import type { Card } from '@79523/engine'
@@ -919,15 +919,23 @@ function scheduleDisconnectRemoval(io: WsServer, roomCode: string, playerId: str
     if (!player || player.connected) return
     const room = getRoom(roomCode)
     if (!room) return
-    if (room.game) return // keep the seat for the duration of the game
-    leaveRoom(roomCode, playerId)
-    const updated = getRoom(roomCode)
-    io.to(roomCode).emit('player_left', {
-      playerId,
-      players: updated ? serializePlayers(updated.players) : [],
-    })
-    broadcastLobby()
+    // Option B keeps a seat for the whole game, but only while another human is still there to
+    // play with. If every human has dropped, abandon the room — otherwise the game keeps
+    // auto-playing (30s/turn) and the room shows as "in progress" long after everyone left.
+    const othersOnline = room.players.some(p => !p.isAI && p.id !== playerId && p.connected)
+    if (room.game && othersOnline) return
+    if (room.game) room.game = null
+    leaveCurrentRoom(io, playerId)
   }, delayMs)
+}
+
+/**
+ * Remove a (being deleted) account from any room it is in, so deleting a user doesn't leave a
+ * stale seat / zombie room behind. Called by the account-deletion REST endpoints.
+ */
+export function removeAccountFromRooms(playerId: string): void {
+  const io = getIO()
+  if (io) leaveCurrentRoom(io, playerId)
 }
 
 /** The room this player currently belongs to, if any. */

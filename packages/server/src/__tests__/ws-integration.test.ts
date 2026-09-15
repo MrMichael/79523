@@ -320,6 +320,27 @@ describe('WebSocket integration', () => {
     expect(left.players.map((p: any) => p.id)).not.toContain((host as any).__user.id)
   }, 15000)
 
+  test('a game is abandoned once every human has dropped', async () => {
+    // Option B keeps seats mid-game, but not when nobody is left to play with — otherwise the
+    // game auto-plays (30s/turn) and the room lingers as "in progress" long after everyone left.
+    process.env.DISCONNECT_KICK_MS = '100'
+    process.env.TURN_TIMEOUT_MS = '30000'
+    try {
+      const { host, guest, roomCode } = await startTwoPlayerGame()
+      host.disconnect()
+      guest.disconnect()
+      await new Promise(r => setTimeout(r, 800))
+
+      const late = await connectClient()
+      const err = waitFor<any>(late, 'error')
+      late.emit('join_room', { roomCode })
+      expect((await err).message).toMatch(/not found/i)
+    } finally {
+      delete process.env.DISCONNECT_KICK_MS
+      delete process.env.TURN_TIMEOUT_MS
+    }
+  }, 15000)
+
   test('a room is dissolved once its last human leaves', async () => {
     const host = await connectClient()
     const createdA = waitFor<{ roomCode: string }>(host, 'room_created')
