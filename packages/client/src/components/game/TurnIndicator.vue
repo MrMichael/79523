@@ -1,7 +1,7 @@
 <template>
   <div class="turn" :class="{ active: isMyTurn }">
     <span v-if="isMyTurn" class="turn-label">⏱ 你的回合</span>
-    <span v-else-if="currentPlayerOffline" class="turn-label offline">⏳ {{ currentPlayer }} 掉线中，等待重连…</span>
+    <span v-else-if="currentPlayerOffline" class="turn-label managed">🤖 {{ currentPlayer }} 离线托管中，自动出牌…</span>
     <span v-else class="turn-label waiting">等待 {{ currentPlayer }} 出牌</span>
     <span v-if="isMyTurn" class="timer">{{ timeLeft }}s</span>
   </div>
@@ -17,5 +17,6 @@ defineProps<{ isMyTurn: boolean; currentPlayer: string; timeLeft: number; curren
 .turn.active .turn-label { color: #fbbf24; }
 .waiting { color: #64748b; }
 .offline { color: #f87171; }
+.managed { color: #93c5fd; }
 .timer { background: rgba(251,191,36,0.15); color: #fbbf24; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 </style>

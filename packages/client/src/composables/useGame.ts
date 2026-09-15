@@ -130,7 +130,12 @@ export function useGame() {
 
     socket.value?.on('draw_card', ({ hand, deckCount }: any) => {
       store.clearSelection()
-      if (hand) store.myHand = hand
+      if (hand) {
+        store.myHand = hand
+        // While the tribute overlay is up, keep its hand in sync too — the loser should see
+        // the card the winner handed back to them.
+        if (store.surrenderActive) store.surrenderHand = hand
+      }
       if (deckCount !== undefined) store.deckCount = deckCount
     })
 
@@ -208,6 +213,7 @@ export function useGame() {
       store.surrenderRole = data.yourRole
       store.surrenderHand = data.hand || []
       store.surrenderInfo = data.info || ''
+      store.surrenderResult = []
       if (data.surrenderedCards) store.surrenderPickCards = data.surrenderedCards
     })
 
@@ -219,15 +225,17 @@ export function useGame() {
 
     socket.value?.on('surrender_swap', ({ losers }: any) => {
       clog('surrender_swap', losers?.map((l: any) => l.id))
-      // Inter-game surrender completed — hide the overlay after players can read the summary.
+      // Keep the overlay up a moment with a summary of who gave/received what, then hide it.
+      store.surrenderResult = Array.isArray(losers) ? losers : []
+      store.surrenderPhase = ''
+      store.surrenderPickCards = []
       setTimeout(() => {
         store.surrenderActive = false
-        store.surrenderPhase = ''
         store.surrenderRole = 'spectator'
         store.surrenderHand = []
         store.surrenderInfo = ''
-        store.surrenderPickCards = []
-      }, 1500)
+        store.surrenderResult = []
+      }, 3500)
     })
 
     socket.value?.on('boxer_champion', ({ playerId, scores }: any) => {
@@ -274,6 +282,7 @@ export function useGame() {
       store.surrenderHand = []
       store.surrenderInfo = ''
       store.surrenderPickCards = []
+      store.surrenderResult = []
     })
 
     socket.value?.on('full_state', ({ myHand: hand, deck, tableCards, tablePlays, players: gamePlayers, currentPlayerIndex, myId, roomPlayerStats, playerNames: names }: any) => {

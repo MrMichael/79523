@@ -4,7 +4,7 @@
     <div class="cards-face-down" :class="{ dim: !connected }">
       <div v-for="i in cardCount" :key="i" class="card-back"></div>
     </div>
-    <div v-if="!connected" class="offline-badge">📴 掉线</div>
+    <div v-if="!connected" class="offline-badge" title="离线，由系统自动托管">🤖 托管</div>
     <div class="meta"><span class="count">{{ cardCount }}张</span> · <span class="score">{{ score }}分</span></div>
   </div>
 </template>
@@ -33,8 +33,8 @@ withDefaults(
 .player-slot.offline { opacity: 0.75; border-color: rgba(239,68,68,0.35) !important; background: rgba(239,68,68,0.06); }
 .player-slot.offline .name { color: #94a3b8; }
 .offline-badge {
-  font-size: 0.68rem; font-weight: 700; color: #f87171;
-  background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4);
+  font-size: 0.68rem; font-weight: 700; color: #93c5fd;
+  background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.4);
   border-radius: 6px; padding: 0 0.35rem; line-height: 1.4;
 }
 </style>

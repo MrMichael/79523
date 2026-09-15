@@ -2,7 +2,19 @@
   <div v-if="active" class="surrender-overlay">
     <div class="surrender-card">
       <h2 class="title">⚔️ 交粮环节</h2>
-      <p class="phase-info">{{ info }}</p>
+      <p v-if="!result.length" class="phase-info">{{ info }}</p>
+
+      <!-- Result: who gave what and got what back -->
+      <div v-if="result.length" class="result-area">
+        <p class="result-title">交粮完成</p>
+        <div v-for="r in result" :key="r.id" class="result-row">
+          <span class="result-who">{{ nameOf(r.id) }}</span>
+          <CardSprite :card="r.gaveUpCard" />
+          <span class="result-arrow">→</span>
+          <CardSprite :card="r.receivedCard" />
+        </div>
+        <p class="result-hint">左：交出的最大牌 &nbsp;·&nbsp; 右：换回的牌</p>
+      </div>
 
       <!-- Loser: select largest card to give up -->
       <div v-if="phase === 'losers_give'" class="phase-content">
@@ -60,6 +72,7 @@ import CardSprite from '@/components/common/CardSprite.vue'
 // works after a reconnect/reload — a component-local listener would miss the re-sent prompt.
 const { socket } = useSocket()
 const store = useGameStore()
+const props = defineProps<{ playerNames?: Record<string, string> }>()
 
 const active = computed(() => store.surrenderActive)
 const phase = computed(() => store.surrenderPhase)
@@ -67,6 +80,12 @@ const myRole = computed(() => store.surrenderRole)
 const myHand = computed(() => store.surrenderHand)
 const info = computed(() => store.surrenderInfo)
 const surrenderedCardsForPick = computed(() => store.surrenderPickCards)
+const result = computed(() => store.surrenderResult)
+
+function nameOf(id: string): string {
+  if (id === store.myId) return '你'
+  return props.playerNames?.[id] || id.slice(0, 6)
+}
 
 const selectedCards = ref<Card[]>([])
 watch(() => store.surrenderPhase, () => { selectedCards.value = [] })
@@ -138,4 +157,12 @@ function submitReturn() {
 .action-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(34,197,94,0.3); }
 .action-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
 .hint-text { font-size: 0.75rem; color: #e2b04a; margin-top: 0.25rem; }
+
+/* Swap result */
+.result-area { margin: 0.5rem 0; }
+.result-title { font-size: 1rem; font-weight: 700; color: #fbbf24; margin-bottom: 0.5rem; }
+.result-row { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.3rem 0; }
+.result-who { font-size: 0.85rem; color: #e2e8f0; font-weight: 600; min-width: 3.5rem; text-align: right; }
+.result-arrow { color: #94a3b8; font-weight: 700; }
+.result-hint { font-size: 0.72rem; color: #64748b; margin-top: 0.5rem; }
 </style>

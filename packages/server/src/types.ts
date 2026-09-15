@@ -59,6 +59,8 @@ export interface BoxerState {
   currentSurvivors: string[]
   currentMoves: Map<string, BoxerMove>
   round: number
+  /** Set while a round is being resolved, so a duplicate trigger can't resolve it twice. */
+  resolveLocked?: boolean
   /** Index of the tied score-group being resolved when the boxer state is reused for ranking tiebreaks. */
   tieGroupIndex?: number
 }

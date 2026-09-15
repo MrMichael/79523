@@ -51,4 +51,13 @@ describe('useRoom full_state navigation', () => {
     fire('full_state', { roomCode: 'ABCDEF' })
     expect(push).not.toHaveBeenCalled()
   })
+
+  it('returns to the lobby when the seat is gone', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    fire('error', { message: 'Player not found' })
+    expect(push).toHaveBeenCalledWith('/lobby')
+  })
 })

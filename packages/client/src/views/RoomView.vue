@@ -15,6 +15,7 @@
       <div class="player-item" v-for="p in players" :key="p.id">
         <span class="status-dot" :class="{ ready: p.connected }"></span>
         <span class="player-name">{{ p.name }}{{ p.isHost ? ' 👑' : '' }}{{ p.isAI ? ' 🤖' : '' }}</span>
+        <span v-if="!p.connected" class="managed-tag" title="离线，由系统自动托管">🤖 托管</span>
         <button v-if="isHost && p.isAI" class="remove-ai-btn" @click="removeAI(p.id)">移除</button>
         <span class="player-stats">
           <span v-if="(p.wins ?? 0) > 0 || (p.boxerWins ?? 0) > 0" class="stat-badge">
@@ -161,6 +162,11 @@ function copyCode() {
 .ready-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(34,197,94,0.3); }
 .ready-btn:disabled { background: rgba(255,255,255,0.06); color: #475569; cursor: not-allowed; transform: none; box-shadow: none; }
 .player-stats { font-size: 0.75rem; color: #94a3b8; margin-left: auto; margin-right: 0.5rem; }
+.managed-tag {
+  font-size: 0.68rem; font-weight: 700; color: #93c5fd;
+  background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.4);
+  border-radius: 6px; padding: 0 0.35rem;
+}
 .stat-badge { font-size: 0.7rem; }
 .leaderboard {
   margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.03);

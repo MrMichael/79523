@@ -105,6 +105,18 @@ describe('SurrenderOverlay (mounted)', () => {
     expect(wrapper.find('.card-grid').exists()).toBe(false)
   })
 
+  it('shows the tribute result (gave → received) once it completes', async () => {
+    const w = mount(SurrenderOverlay, { props: { playerNames: { p2: '乙' } } })
+    store.surrenderActive = true
+    store.surrenderResult = [{ id: 'p2', gaveUpCard: c(Suit.Spade, Rank.Nine), receivedCard: c(Suit.Heart, Rank.Four) }]
+    await nextTick()
+
+    expect(w.find('.result-title').text()).toContain('交粮完成')
+    expect(w.find('.result-row').text()).toContain('乙')
+    // Two cards are shown for the swap (gave + received).
+    expect(w.find('.result-row').findAll('.card').length).toBe(2)
+  })
+
   it('hides when the store clears the surrender state', async () => {
     const wrapper = mount(SurrenderOverlay)
     show('losers_give', 'loser', [c(Suit.Spade, Rank.Four)])

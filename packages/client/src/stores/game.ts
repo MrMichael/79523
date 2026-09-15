@@ -45,6 +45,8 @@ export const useGameStore = defineStore('game', () => {
   const surrenderHand = ref<Card[]>([])
   const surrenderInfo = ref('')
   const surrenderPickCards = ref<{ playerId: string; playerName: string; card: Card }[]>([])
+  /** Filled when the tribute completes, so the overlay can show what each loser gave/received. */
+  const surrenderResult = ref<{ id: string; gaveUpCard: Card; receivedCard: Card }[]>([])
 
   const selectedCount = computed(() => selectedCards.value.length)
 
@@ -107,13 +109,14 @@ export const useGameStore = defineStore('game', () => {
     surrenderHand.value = []
     surrenderInfo.value = ''
     surrenderPickCards.value = []
+    surrenderResult.value = []
   }
 
   return {
     myHand, tableCards, tablePlays, selectedCards, scores, isMyTurn, timeLeft, deckCount,
     phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
     boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints, boxerSubmitted,
-    surrenderActive, surrenderPhase, surrenderRole, surrenderHand, surrenderInfo, surrenderPickCards,
+    surrenderActive, surrenderPhase, surrenderRole, surrenderHand, surrenderInfo, surrenderPickCards, surrenderResult,
     selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick, reset,
   }
 })

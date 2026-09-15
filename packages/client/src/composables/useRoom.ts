@@ -96,6 +96,14 @@ export function useRoom() {
       const gameStore = useGameStore()
       gameStore.errorMessage = message
       setTimeout(() => { gameStore.clearError() }, 1500)
+      // We no longer have a seat (e.g. the seat was reclaimed while we were offline) — go back
+      // to the lobby instead of sitting on a room/game page we're not part of.
+      if (message === 'Player not found' || message === 'Room not found' || message === '你不在该房间') {
+        roomCode.value = ''
+        players.value = []
+        myId.value = ''
+        router.push('/lobby')
+      }
     })
   }
 

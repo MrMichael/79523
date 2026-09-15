@@ -40,6 +40,7 @@ function startBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Room[
   bs.currentSurvivors = getBoxerParticipants(game)
   bs.currentMoves.clear()
   bs.round = 0
+  bs.resolveLocked = false
   const room = getRoom(roomCode)
   const gameScores: Record<string, number> = {}
   const boxerWins: Record<string, number> = {}
@@ -95,6 +96,7 @@ function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Roo
     for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
     bs.currentSurvivors = survivors
     bs.currentMoves.clear()
+    bs.resolveLocked = false
     // Delay next round so survivors can see the reveal
     const room = getRoom(roomCode)
     setTimeout(() => {
@@ -118,11 +120,17 @@ function processBoxerRound(io: WsServer, roomCode: string, game: NonNullable<Roo
 function maybeResolveBoxer(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
   const bs = game.boxerState
   if (!bs || bs.currentSurvivors.length === 0) return
+  // A round must be resolved at most once: the winner branch keeps currentMoves around for the
+  // reveal, so a late timer / a player leaving / a re-click would otherwise resolve it again —
+  // burning an extra boxer round and skipping a score card. The lock is cleared when the next
+  // round is set up (startBoxerRound / startBoxerTiebreakRound / a survivors>1 sub-round).
+  if (bs.resolveLocked) return
   if (bs.currentMoves.size < bs.currentSurvivors.length) {
     // Sole survivor doesn't need to submit a move — treat them as the winner.
     if (bs.currentSurvivors.length !== 1) return
     bs.currentMoves.set(bs.currentSurvivors[0], BoxerMove.Rock)
   }
+  bs.resolveLocked = true
   if (bs.scoreCards.length === 0) resolveBoxerTiebreakRound(io, roomCode, game)
   else processBoxerRound(io, roomCode, game)
 }
@@ -152,7 +160,8 @@ function scheduleBotBoxer(io: WsServer, roomCode: string, game: NonNullable<Room
   for (const id of bs.currentSurvivors) {
     if (bs.currentMoves.has(id)) continue
     const rp = room?.players.find(p => p.id === id)
-    const delay = rp?.isAI ? botDelayMs() : humanTimeout
+    // AI and offline (auto-managed / 托管) players punch promptly.
+    const delay = rp?.isAI || !rp?.connected ? botDelayMs() : humanTimeout
     const t = setTimeout(() => {
       const cur = game.boxerState
       if (cur !== bs) return
@@ -170,7 +179,8 @@ function scheduleBotSurrender(io: WsServer, roomCode: string, game: NonNullable<
   if (!ss) return
   const actorId = ss.phase === 'losers_give' ? ss.loserIds[ss.currentPairIndex] : ss.winnerIds[ss.currentPairIndex]
   const actor = room.players.find(p => p.id === actorId)
-  if (!actor?.isAI) return
+  // Only AI, or a human who is offline (auto-managed / 托管) — present players choose themselves.
+  if (!actor || (!actor.isAI && actor.connected)) return
   setTimeout(() => {
     if (room.surrenderState !== ss) return
     const gp = game.players.find(p => p.id === actorId)
@@ -246,6 +256,7 @@ function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullab
   const bs = game.boxerState!
   bs.currentMoves.clear()
   bs.round = 0
+  bs.resolveLocked = false
   const room = getRoom(roomCode)
   const gameScores: Record<string, number> = {}
   const boxerWins: Record<string, number> = {}
@@ -321,6 +332,7 @@ function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNull
     for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
     bs.currentSurvivors = survivors
     bs.currentMoves.clear()
+    bs.resolveLocked = false
 
     setTimeout(() => {
       if (!game.boxerState || game.boxerState.currentSurvivors !== survivors) return
@@ -783,7 +795,13 @@ function boxerDelayMs(): number {
 function promptTurn(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string, extra: Record<string, unknown> = {}) {
   const rp = room.players.find(p => p.id === playerId)
   if (!rp) return
-  if (rp.isAI) { scheduleBotTurn(io, roomCode, game, room, playerId); return }
+  // AI, or a human who is offline (auto-managed / 托管): act promptly instead of waiting out
+  // the whole turn timer, so an absent player never drags the game and it keeps pace.
+  if (rp.isAI || !rp.connected) {
+    clearTurnTimer(roomCode)
+    scheduleBotTurn(io, roomCode, game, room, playerId)
+    return
+  }
   const gp = game.players.find(p => p.id === playerId)!
   startTurnTimer(io, roomCode, game, room, playerId)
   io.to(rp.socketId).emit('your_turn', { timeout: Math.round(turnTimeoutMs() / 1000), hand: gp.hand, deckCount: game.deck.length, ...extra })
@@ -1274,6 +1292,12 @@ export function setupWebSocket(httpServer: HttpServer) {
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })
         if (room) io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room.players) })
         scheduleDisconnectRemoval(io, currentRoomCode, currentPlayerId, disconnectKickMs())
+        // If it was their turn, hand it to the auto-manager right away instead of burning the
+        // whole turn timer (the reverse happens in promptTurn for any later turn).
+        const game = room?.game
+        if (room && game && !game.boxerState && game.players[game.currentPlayerIndex]?.id === currentPlayerId) {
+          promptTurn(io, currentRoomCode, game, room, currentPlayerId)
+        }
       }
     })
 
@@ -1281,8 +1305,22 @@ export function setupWebSocket(httpServer: HttpServer) {
       // If we're somehow still in another room, leave it so events don't leak across tables.
       const current = findPlayerRoom(me.id)
       if (current && current.code !== roomCode) leaveCurrentRoom(io, me.id)
-      const player = getPlayer(me.id)
+
+      const room = getRoom(roomCode)
+      if (!room) { socket.emit('error', { message: 'Room not found' }); return }
+
+      let player = getPlayer(me.id)
+      // The grace timer may have reclaimed our seat while we were away. If the room still
+      // exists and isn't playing, take it back — otherwise the player is stuck ("can't
+      // connect") even though nothing stops them from rejoining.
+      if (!player && !room.game) {
+        player = createPlayerForAccount(me)
+        if (!joinRoom(roomCode, player)) { socket.emit('error', { message: 'Player not found' }); return }
+        io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
+        broadcastLobby()
+      }
       if (!player) { socket.emit('error', { message: 'Player not found' }); return }
+
       setPlayerConnected(me.id, true)
       player.connected = true
       socket.data.playerId = me.id
@@ -1290,8 +1328,6 @@ export function setupWebSocket(httpServer: HttpServer) {
       socket.join(roomCode)
       currentPlayerId = me.id; currentRoomCode = roomCode
       io.to(roomCode).emit('player_reconnected', { playerId: me.id })
-      const room = getRoom(roomCode)
-      if (!room) return
       io.to(roomCode).emit('players_updated', { players: serializePlayers(room.players) })
       const gp = room.game?.players.find(p => p.id === me.id)
       if (room.game && gp) {

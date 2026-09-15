@@ -186,23 +186,28 @@ describe('WebSocket integration', () => {
     expect(turn.hand).toBeDefined()
   }, 15000)
 
-  test('a disconnected player keeps their seat mid-game; the turn auto-advances', async () => {
+  test('a disconnected player keeps their seat and is auto-managed (托管)', async () => {
     process.env.DISCONNECT_KICK_MS = '100'
-    process.env.TURN_TIMEOUT_MS = '300'
+    // Much longer than the test timeout: the turn must be auto-played by the manager, not by
+    // the ordinary turn timer.
+    process.env.TURN_TIMEOUT_MS = '60000'
+    process.env.BOT_DELAY_MS = '5'
     try {
       const { leadSocket, otherSocket } = await startTwoPlayerGame()
       const noLeave = waitFor(otherSocket, 'player_left', 800)
+      const t0 = Date.now()
       leadSocket.disconnect()
-      // The absent player's turn is auto-played after the turn timeout, so the game keeps moving.
-      const turn = await waitFor<any>(otherSocket, 'your_turn', 15000)
+      const turn = await waitFor<any>(otherSocket, 'your_turn', 5000)
       expect(turn.hand).toBeDefined()
+      expect(Date.now() - t0).toBeLessThan(3000) // auto-managed promptly, not after 60s
       // ...and the seat was NOT removed while the game is running.
       await expect(noLeave).rejects.toThrow(/timeout/)
     } finally {
       delete process.env.DISCONNECT_KICK_MS
       delete process.env.TURN_TIMEOUT_MS
+      delete process.env.BOT_DELAY_MS
     }
-  }, 25000)
+  }, 15000)
 
   test('reconnecting re-binds the seat and delivers full_state (with table play owners)', async () => {
     const { host, leadSocket, otherSocket, hs, gs, roomCode } = await startTwoPlayerGame()
@@ -358,6 +363,37 @@ describe('WebSocket integration', () => {
       delete process.env.BOXER_TIMEOUT_MS
     }
   }, 60000)
+
+  test('reconnecting into a waiting room re-takes a reclaimed seat', async () => {
+    // If the grace timer reclaimed the seat while we were away, returning to a room that hasn't
+    // started playing must put us back in it (otherwise the player is stuck: not in the room,
+    // and mid-game joins are rejected).
+    process.env.DISCONNECT_KICK_MS = '100'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', {})
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const guest = await connectClient()
+      const joined = waitFor(host, 'player_joined')
+      guest.emit('join_room', { roomCode })
+      await joined
+      const gUser = (guest as any).__user
+
+      guest.disconnect()
+      await new Promise(r => setTimeout(r, 400)) // grace reclaims the (waiting-room) seat
+
+      const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(gUser) } })
+      sockets.push(revived)
+      await waitFor(revived, 'connect')
+      const rejoined = waitFor<any>(host, 'player_joined')
+      const backToRoom = waitFor(revived, 'next_game_lead')
+      revived.emit('reconnect', { roomCode })
+      await backToRoom
+      expect((await rejoined).players.map((p: any) => p.id)).toContain(gUser.id)
+    } finally {
+      delete process.env.DISCONNECT_KICK_MS
+    }
+  }, 15000)
 
   test('a stale socket closing does not mark a player offline', async () => {
     // A page reload / mobile resume leaves the OLD socket closing *after* the new one has

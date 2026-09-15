@@ -17,7 +17,7 @@
     <GameOverOverlay :playerNames="playerNames" />
     <BoxerOverlay :playerNames="playerNames" @boxer-move="onBoxerMove" />
     <ScorePopup :scores="scores" :playerNames="playerNames" :players="props.players" />
-    <SurrenderOverlay />
+    <SurrenderOverlay :playerNames="playerNames" />
     <PlayBanner />
   </div>
 </template>
