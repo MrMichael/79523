@@ -112,6 +112,14 @@ describe('WebSocket integration', () => {
     expect(rr.scores.find((s: any) => s.id === leadId)).toBeDefined()
   }, 15000)
 
+  test('players_updated marks a player disconnected when they drop', async () => {
+    const { leadSocket, otherSocket } = await startTwoPlayerGame()
+    const seen = waitFor<any>(otherSocket, 'players_updated')
+    leadSocket.disconnect()
+    const upd = await seen
+    expect(upd.players.some((p: any) => p.connected === false)).toBe(true)
+  }, 15000)
+
   test('a game where nobody plays still auto-advances to the end', async () => {
     // Regression: the turn-timer auto-play must play the engine's smallest card or the
     // first-trick rule rejects it and the game deadlocks (both players idle ≈ both offline).

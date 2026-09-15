@@ -401,7 +401,7 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
       hand: gp.hand,
       players: game.players.map(p => {
         const rp = room.players.find(r => r.id === p.id)
-        return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0 }
+        return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0, connected: rp?.connected ?? true }
       }),
       leadPlayerId,
       playerNames,
@@ -1039,7 +1039,7 @@ function startRoom(io: WsServer, room: Room) {
         hand: gp.hand,
         players: game.players.map(p => {
           const rp = room.players.find(r => r.id === p.id)
-          return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0 }
+          return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0, connected: rp?.connected ?? true }
         }),
         leadPlayerId: '',
         playerNames,
@@ -1283,7 +1283,7 @@ export function setupWebSocket(httpServer: HttpServer) {
           myHand: gp.hand,
           myId: me.id,
           roomCode,
-          roomPlayerStats: Object.fromEntries(room.players.map(rp => [rp.id, { wins: rp.wins, boxerWins: rp.boxerWins }])),
+          roomPlayerStats: Object.fromEntries(room.players.map(rp => [rp.id, { wins: rp.wins, boxerWins: rp.boxerWins, connected: rp.connected }])),
           playerNames: Object.fromEntries(room.players.map(rp => [rp.id, rp.name])),
         })
         resendBoxerState(io, roomCode, room.game, me.id)

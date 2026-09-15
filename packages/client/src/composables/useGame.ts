@@ -27,7 +27,7 @@ function stopCountdown() {
 }
 
 // Module-level shared state — survives route changes, shared across all useGame() calls
-const players = ref<{ id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number }[]>([])
+const players = ref<{ id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number; connected: boolean }[]>([])
 const playerNames = ref<Record<string, string>>({})
 
 /** Reset shared game state + listener guard when leaving the game (e.g. returning home).
@@ -75,7 +75,21 @@ export function useGame() {
         score: p.score,
         wins: p.wins || 0,
         boxerWins: p.boxerWins || 0,
+        connected: p.connected ?? true,
       }))
+    })
+
+    // Keep the in-game connectivity flags in sync (someone dropping/reconnecting mid-game).
+    socket.value?.on('players_updated', ({ players: plist }: any) => {
+      if (!plist) return
+      const byId = new Map<string, any>(plist.map((p: any) => [p.id, p]))
+      for (const p of players.value) {
+        const rp = byId.get(p.id)
+        if (rp) {
+          p.connected = rp.connected !== false
+          if (rp.name) p.name = rp.name
+        }
+      }
     })
 
     socket.value?.on('your_turn', ({ timeout, hand, deckCount, tableCards }: any) => {
@@ -280,6 +294,7 @@ export function useGame() {
           score: p.score,
           wins: roomPlayerStats?.[p.id]?.wins || p.wins || 0,
           boxerWins: roomPlayerStats?.[p.id]?.boxerWins || p.boxerWins || 0,
+          connected: roomPlayerStats?.[p.id]?.connected ?? p.connected ?? true,
         }))
       }
       if (gamePlayers && currentPlayerIndex !== undefined) {

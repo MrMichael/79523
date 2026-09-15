@@ -1,11 +1,11 @@
 <template>
   <div class="game-board">
     <div class="other-players">
-      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" />
+      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" :connected="p.connected !== false" />
     </div>
     <div class="table-center">
       <DeckInfo :count="deckCount" />
-      <TurnIndicator :isMyTurn="isMyTurn" :currentPlayer="currentPlayerName" :timeLeft="timeLeft" />
+      <TurnIndicator :isMyTurn="isMyTurn" :currentPlayer="currentPlayerName" :timeLeft="timeLeft" :currentPlayerOffline="currentPlayerOffline" />
       <TableCards :cards="tableCards" :plays="store.tablePlays" :colorMap="playerColorMap" />
     </div>
     <div class="self-score" v-if="store.myId && scores[store.myId] !== undefined">
@@ -41,7 +41,7 @@ import ScorePopup from './ScorePopup.vue'
 
 const store = useGameStore()
 const props = defineProps<{
-  players: { id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number }[]
+  players: { id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number; connected?: boolean }[]
   currentPlayerId: string
   playerNames: Record<string, string>
 }>()
@@ -60,6 +60,11 @@ const playerColorMap = computed<Record<string, string>>(() =>
   Object.fromEntries(props.players.map((p, i) => [p.id, colorForIndex(i)]))
 )
 const highestScore = computed(() => Math.max(...props.players.map(p => p.score), 0))
+// True while the player whose turn it is is offline (shows "waiting for reconnect").
+const currentPlayerOffline = computed(() => {
+  const p = props.players.find(x => x.id === props.currentPlayerId)
+  return !!p && p.connected === false
+})
 
 function onPlay(cards: Card[]) { emit('play', cards) }
 function onPass() { emit('pass') }

@@ -79,7 +79,7 @@ export interface ServerEvents {
   player_joined: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
   player_left: (data: { playerId: string; players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
   players_updated: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
-  game_started: (data: { hand: Card[]; players: GamePlayer[]; leadPlayerId: string; playerNames: Record<string, string>; myId: string; deckCount: number }) => void
+  game_started: (data: { hand: Card[]; players: (GamePlayer & { connected?: boolean })[]; leadPlayerId: string; playerNames: Record<string, string>; myId: string; deckCount: number }) => void
   your_turn: (data: { timeout: number; hand: Card[]; deckCount: number; tableCards?: Card[] }) => void
   play_made: (data: { playerId: string; nextPlayerId: string; play: { type: string; cards: Card[] }; tableCards: Card[] }) => void
   pass_made: (data: { playerId: string; nextPlayerId: string }) => void
@@ -97,7 +97,7 @@ export interface ServerEvents {
   player_disconnected: (data: { playerId: string }) => void
   player_reconnected: (data: { playerId: string }) => void
   error: (data: { message: string }) => void
-  full_state: (data: ServerGame & { myHand: Card[]; myId: string; roomCode: string; roomPlayerStats?: Record<string, { wins: number; boxerWins: number }>; playerNames?: Record<string, string> }) => void
+  full_state: (data: ServerGame & { myHand: Card[]; myId: string; roomCode: string; roomPlayerStats?: Record<string, { wins: number; boxerWins: number; connected?: boolean }>; playerNames?: Record<string, string> }) => void
   scores_updated: (data: { scores: { id: string; totalScore: number }[] }) => void
   room_stats_updated: (data: { stats: { id: string; name: string; wins: number; boxerWins: number }[] }) => void
   boxer_champion: (data: { playerId: string; scores: { id: string; score: number }[] }) => void
