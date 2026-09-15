@@ -7,7 +7,7 @@ import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBo
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn, getSmallestCard } from '@79523/engine'
 import { verifyToken } from './auth'
 import { findUserById } from './db'
-import { bindOnline, markOnline, markOffline, getIO } from './online'
+import { bindOnline, markOnline, markOffline, isOnline, getIO } from './online'
 import { broadcastLobby } from './lobby'
 import { persistGameStats } from './stats'
 import type { Card } from '@79523/engine'
@@ -420,7 +420,10 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
 
 // ── Surrender flow (manual) ──
 
-const SURRENDER_TIMEOUT = 15000 // 15s auto-complete if no player responds
+// Auto-complete the whole surrender if no player responds in time (SURRENDER_TIMEOUT_MS).
+function surrenderTimeoutMs(): number {
+  return Number(process.env.SURRENDER_TIMEOUT_MS) || 30000
+}
 
 // ── Logging ──
 const log = (evt: string, roomCode: string, detail?: any) => {
@@ -439,7 +442,9 @@ function resetSurrenderTimer(io: WsServer, roomCode: string, game: NonNullable<R
     if (game.gameOver || game.boxerState) return
     const ss = room.surrenderState
     if (!ss) return
+    log('SURRENDER_TIMEOUT', roomCode, `phase=${ss.phase} pair=${ss.currentPairIndex}`)
     const { swaps, nextLeadPlayerId } = executeSurrenderSwap(game, { loserIds: ss.loserIds, winnerIds: ss.winnerIds })
+    log('SURRENDER_TIMEOUT_DONE', roomCode, `swaps=${swaps.length} lead=${nextLeadPlayerId}`)
     if (nextLeadPlayerId) {
       const leadIdx = game.players.findIndex(p => p.id === nextLeadPlayerId)
       if (leadIdx >= 0) game.currentPlayerIndex = leadIdx
@@ -457,7 +462,7 @@ function resetSurrenderTimer(io: WsServer, roomCode: string, game: NonNullable<R
     const leadGp = game.players[game.currentPlayerIndex]
     room.surrenderState = null
     promptTurn(io, roomCode, game, room, leadGp.id)
-  }, SURRENDER_TIMEOUT)
+  }, surrenderTimeoutMs())
   ;(room as any).__surrenderTimer = timer
 }
 
@@ -1260,6 +1265,10 @@ export function setupWebSocket(httpServer: HttpServer) {
       markOffline(me.id, socket.id)
       broadcastLobby()
       if (currentPlayerId && currentRoomCode) {
+        // A page reload / mobile resume can close the OLD socket *after* the new one has already
+        // reconnected. Only mark the seat offline when no socket for this account is left —
+        // otherwise the stale close flips `connected` back to false while the player is playing.
+        if (isOnline(me.id)) return
         setPlayerConnected(currentPlayerId, false)
         const room = getRoom(currentRoomCode)
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })

@@ -320,6 +320,68 @@ describe('WebSocket integration', () => {
     expect(left.players.map((p: any) => p.id)).not.toContain((host as any).__user.id)
   }, 15000)
 
+  test('surrender auto-completes (tribute applied) when nobody acts', async () => {
+    process.env.SURRENDER_TIMEOUT_MS = '200'
+    process.env.TURN_TIMEOUT_MS = '10'
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '5'
+    process.env.BOXER_TIMEOUT_MS = '50'
+    try {
+      const host = await connectClient()
+      host.emit('create_room', {})
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const added = waitFor(host, 'players_updated')
+      host.emit('add_ai')
+      await added
+      expect(roomCode).toMatch(/^[A-Z0-9]{6}$/)
+
+      let started = waitFor(host, 'game_started')
+      host.emit('start_game')
+      await started
+      await waitFor(host, 'next_game_lead', 40000) // game 1 finishes -> next game has a surrender
+
+      started = waitFor(host, 'game_started')
+      host.emit('start_game')
+      await started
+      // Nobody touches the surrender UI -> the timeout performs the tribute itself.
+      const swap = await waitFor<any>(host, 'surrender_swap', 15000)
+      expect(swap.losers.length).toBeGreaterThan(0)
+      expect(swap.losers[0].gaveUpCard).toBeDefined()
+      expect(swap.losers[0].receivedCard).toBeDefined()
+    } finally {
+      delete process.env.SURRENDER_TIMEOUT_MS
+      delete process.env.TURN_TIMEOUT_MS
+      delete process.env.BOT_DELAY_MS
+      delete process.env.FLOW_DELAY_MS
+      delete process.env.BOXER_DELAY_MS
+      delete process.env.BOXER_TIMEOUT_MS
+    }
+  }, 60000)
+
+  test('a stale socket closing does not mark a player offline', async () => {
+    // A page reload / mobile resume leaves the OLD socket closing *after* the new one has
+    // reconnected; that used to flip the room seat to connected=false while they were playing.
+    const { host, guest, roomCode } = await startTwoPlayerGame()
+    const hostUser = (host as any).__user
+
+    const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken(hostUser) } })
+    sockets.push(revived)
+    await waitFor(revived, 'connect')
+    const reconnected = waitFor(revived, 'player_reconnected')
+    revived.emit('reconnect', { roomCode })
+    await reconnected
+
+    let markedOffline = false
+    guest.on('players_updated', (d: any) => {
+      if (d.players.find((p: any) => p.id === hostUser.id)?.connected === false) markedOffline = true
+    })
+    // The old socket finally goes away — the player is still online through `revived`.
+    host.disconnect()
+    await new Promise(r => setTimeout(r, 500))
+    expect(markedOffline).toBe(false)
+  }, 15000)
+
   test('a game is abandoned once every human has dropped', async () => {
     // Option B keeps seats mid-game, but not when nobody is left to play with — otherwise the
     // game auto-plays (30s/turn) and the room lingers as "in progress" long after everyone left.
