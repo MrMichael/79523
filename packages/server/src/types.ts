@@ -19,7 +19,6 @@ export interface Room {
   createdAt: number
   game: ServerGame | null
   hostId?: string
-  emptiedAt?: number  // last time the room had no human players (for 10-min cleanup)
   gameStartedAt?: number  // wall-clock ms when the current game started (for play-time stats)
   nextLeadPlayerId?: string  // From surrender swap, for next game's first trick (Design §4.2)
   surrenderState?: SurrenderState | null

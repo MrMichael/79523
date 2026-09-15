@@ -7,10 +7,8 @@ import { fileURLToPath } from 'url'
 import apiRoutes from './api'
 import { setupWebSocket } from './ws'
 import { initDb } from './db'
-import { cleanupStaleRooms } from './room'
 
 initDb()
-setInterval(() => cleanupStaleRooms(), 60_000).unref()
 
 const app = express()
 const httpServer = createServer(app)

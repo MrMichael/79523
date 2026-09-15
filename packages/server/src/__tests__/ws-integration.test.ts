@@ -290,6 +290,45 @@ describe('WebSocket integration', () => {
     }
   }, 60000)
 
+  test('an account leaves its previous room when creating another', async () => {
+    const host = await connectClient()
+    const createdA = waitFor<{ roomCode: string }>(host, 'room_created')
+    host.emit('create_room', {})
+    const roomA = (await createdA).roomCode
+
+    const guest = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    guest.emit('join_room', { roomCode: roomA })
+    await joined
+
+    // Host creates a second room -> must leave room A (the guest stays there).
+    const createdB = waitFor<{ roomCode: string }>(host, 'room_created')
+    host.emit('create_room', {})
+    const roomB = (await createdB).roomCode
+    expect(roomB).not.toBe(roomA)
+
+    const left = await waitFor<any>(guest, 'player_left')
+    expect(left.playerId).toBe((host as any).__user.id)
+    expect(left.players.map((p: any) => p.id)).not.toContain((host as any).__user.id)
+  }, 15000)
+
+  test('a room is dissolved once its last human leaves', async () => {
+    const host = await connectClient()
+    const createdA = waitFor<{ roomCode: string }>(host, 'room_created')
+    host.emit('create_room', {})
+    const roomA = (await createdA).roomCode
+
+    // Creating another room leaves room A, which had no other humans -> dissolved.
+    const createdB = waitFor<{ roomCode: string }>(host, 'room_created')
+    host.emit('create_room', {})
+    await createdB
+
+    const late = await connectClient()
+    const err = waitFor<any>(late, 'error')
+    late.emit('join_room', { roomCode: roomA })
+    expect((await err).message).toMatch(/not found/i)
+  }, 15000)
+
   test('joining a room that is already in progress is rejected', async () => {
     const { roomCode } = await startTwoPlayerGame()
     const late = await connectClient()

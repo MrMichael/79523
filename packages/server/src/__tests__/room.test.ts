@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from '@jest/globals'
-import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, destroyRoom, setRoomGame, cleanupStaleRooms } from '../room'
+import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, destroyRoom, setRoomGame } from '../room'
 import { createPlayer, getPlayer } from '../player'
 import type { Player } from '../types'
 
@@ -81,13 +81,12 @@ describe('Room operations', () => {
         expect(room.players.find(p => p.id === 'p1')).toBeUndefined()
       })
 
-      test(`last player leaves ${n}p room → retained with emptiedAt`, () => {
+      test(`last player leaves ${n}p room → room dissolved`, () => {
         const room = createRoom(n)
         joinRoom(room.code, makePlayer('p1'))
         const result = leaveRoom(room.code, 'p1')
-        expect(result).toBe(room)
-        expect(getRoom(room.code)).toBe(room)
-        expect(getRoom(room.code)!.emptiedAt).toBeGreaterThan(0)
+        expect(result).toBeNull()
+        expect(getRoom(room.code)).toBeUndefined()
       })
     }
 
@@ -130,25 +129,11 @@ describe('Room operations', () => {
     })
   })
 
-  describe('cleanupStaleRooms', () => {
-    test('removes empty rooms past retention', () => {
-      const room = createRoom(4)
-      room.emptiedAt = Date.now() - 11 * 60 * 1000 // 11 min ago
-      cleanupStaleRooms()
-      expect(getRoom(room.code)).toBeUndefined()
-    })
-
-    test('keeps occupied rooms', () => {
+  describe('cleanupStaleRooms (removed: empty rooms dissolve immediately)', () => {
+    test('an occupied room is not affected', () => {
       const room = createRoom(4)
       joinRoom(room.code, makePlayer('p1'))
-      room.emptiedAt = Date.now() - 11 * 60 * 1000
-      cleanupStaleRooms()
-      expect(getRoom(room.code)).toBe(room)
-    })
-
-    test('keeps newly emptied rooms', () => {
-      const room = createRoom(4)
-      cleanupStaleRooms()
+      leaveRoom(room.code, 'p2') // p2 was never in it — no-op
       expect(getRoom(room.code)).toBe(room)
     })
   })

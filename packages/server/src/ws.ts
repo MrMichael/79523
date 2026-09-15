@@ -2,7 +2,7 @@ import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
-import { createRoom, getRoom, joinRoom, leaveRoom } from './room'
+import { createRoom, getRoom, joinRoom, leaveRoom, getAllRooms } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn, getSmallestCard } from '@79523/engine'
 import { verifyToken } from './auth'
@@ -696,31 +696,12 @@ function startTurnTimer(io: WsServer, roomCode: string, game: NonNullable<Room['
     if (autoResult.success) {
       processPassResult(io, roomCode, game, room, autoResult)
     } else {
-      // Must play — auto-play the *engine's* smallest card (matches the first-trick rule;
-      // a hand can hold two cards of the same rank, so a naive min-by-rank can be rejected).
+      // Must play — auto-play the engine's smallest card. Go through the shared path so the
+      // round is settled like a real play (round_result + draw + game over). Handling it
+      // inline used to score the pot without clearing tableCards, so the same cards were
+      // counted again on the next trick (single deck could exceed 100).
       const smallest = getSmallestCard(currentPlayer.hand)
-      if (smallest) {
-        const playResult = handlePlay(game, playerId, [smallest])
-        if (playResult.success) {
-          io.to(roomCode).emit('play_made', {
-            playerId,
-            nextPlayerId: '',
-            play: { type: 'single', cards: [smallest] },
-            tableCards: game.tableCards,
-          })
-          // Advance turn
-          if (playResult.roundWinner) {
-            const wi = game.players.findIndex(p => p.id === playResult.roundWinner)
-            if (wi >= 0) game.currentPlayerIndex = wi
-          } else {
-            game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length
-          }
-          for (let i = 0; i < game.players.length && game.players[game.currentPlayerIndex]?.finished; i++)
-            game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length
-          const nextGp = game.players[game.currentPlayerIndex]
-          promptTurn(io, roomCode, game, room, nextGp.id)
-        }
-      }
+      if (smallest) applyPlay(io, roomCode, game, room, playerId, [smallest])
     }
   }, turnTimeoutMs())
   turnTimers.set(roomCode, timer)
@@ -949,6 +930,29 @@ function scheduleDisconnectRemoval(io: WsServer, roomCode: string, playerId: str
   }, delayMs)
 }
 
+/** The room this player currently belongs to, if any. */
+function findPlayerRoom(playerId: string): Room | undefined {
+  return getAllRooms().find(r => r.players.some(p => p.id === playerId))
+}
+
+/**
+ * Leave whatever room the player is currently in. One account may only occupy one room:
+ * the Player object is shared, so being in two rooms makes its socketId (used to route
+ * `your_turn`/`full_state`) point at the wrong table — the visible symptom is a hand that
+ * keeps changing because events from another room leak in.
+ */
+function leaveCurrentRoom(io: WsServer, playerId: string): void {
+  const room = findPlayerRoom(playerId)
+  if (!room) return
+  if (room.game) handlePlayerLeave(io, room.code, room, playerId)
+  leaveRoom(room.code, playerId)
+  const updated = getRoom(room.code)
+  if (updated) {
+    io.to(room.code).emit('player_left', { playerId, players: serializePlayers(updated.players) })
+  }
+  broadcastLobby()
+}
+
 function startBoxerFlow(io: WsServer, roomCode: string, game: NonNullable<Room['game']>) {
   const scoreCards = getBoxerScoreCards(game)
   log('BOXER_START', roomCode, `cards=${scoreCards.length}`)
@@ -1088,6 +1092,7 @@ export function setupWebSocket(httpServer: HttpServer) {
     broadcastLobby()
 
     socket.on('create_room', () => {
+      leaveCurrentRoom(io, me.id)
       const room = createRoom(6)
       room.hostId = me.id
       const player = createPlayerForAccount(me)
@@ -1102,6 +1107,9 @@ export function setupWebSocket(httpServer: HttpServer) {
     })
 
     socket.on('join_room', ({ roomCode }) => {
+      // One account = one room: drop any previous seat first (unless it's the same room).
+      const current = findPlayerRoom(me.id)
+      if (current && current.code !== roomCode) leaveCurrentRoom(io, me.id)
       const player = createPlayerForAccount(me)
       const room = joinRoom(roomCode, player)
       if (!room) { socket.emit('error', { message: 'Room not found, full, or game in progress' }); return }
@@ -1233,15 +1241,7 @@ export function setupWebSocket(httpServer: HttpServer) {
 
     socket.on('leave_room', () => {
       if (!currentRoomCode || !currentPlayerId) return
-      const room = getRoom(currentRoomCode)
-      if (room?.game) handlePlayerLeave(io, currentRoomCode, room, currentPlayerId)
-      leaveRoom(currentRoomCode, currentPlayerId)
-      const updated = getRoom(currentRoomCode)
-      io.to(currentRoomCode).emit('player_left', {
-        playerId: currentPlayerId,
-        players: updated ? serializePlayers(updated.players) : [],
-      })
-      broadcastLobby()
+      leaveCurrentRoom(io, currentPlayerId)
       currentRoomCode = null
       currentPlayerId = null
     })
@@ -1261,6 +1261,9 @@ export function setupWebSocket(httpServer: HttpServer) {
     })
 
     socket.on('reconnect', ({ roomCode }) => {
+      // If we're somehow still in another room, leave it so events don't leak across tables.
+      const current = findPlayerRoom(me.id)
+      if (current && current.code !== roomCode) leaveCurrentRoom(io, me.id)
       const player = getPlayer(me.id)
       if (!player) { socket.emit('error', { message: 'Player not found' }); return }
       setPlayerConnected(me.id, true)
