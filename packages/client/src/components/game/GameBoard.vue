@@ -1,5 +1,6 @@
 <template>
   <div class="game-board">
+    <ChatDanmaku />
     <div class="other-players">
       <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" :connected="p.connected !== false" :bubble="store.chatBubbles[p.id]" />
     </div>
@@ -40,6 +41,7 @@ import SurrenderOverlay from './SurrenderOverlay.vue'
 import PlayBanner from './PlayBanner.vue'
 import ScorePopup from './ScorePopup.vue'
 import ChatPanel from './ChatPanel.vue'
+import ChatDanmaku from './ChatDanmaku.vue'
 
 const store = useGameStore()
 const props = defineProps<{
@@ -74,7 +76,7 @@ function onBoxerMove(move: string) { emit('boxerMove', move) }
 </script>
 
 <style scoped>
-.game-board { display: flex; flex-direction: column; height: 100%; max-height: 100dvh; }
+.game-board { display: flex; flex-direction: column; height: 100%; max-height: 100dvh; position: relative; }
 .other-players { display: flex; justify-content: center; gap: 0.75rem; padding: 0.5rem; flex-wrap: wrap; flex-shrink: 0; }
 .table-center { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 0.4rem; padding: 0.25rem 0.5rem; overflow-y: auto; }
 .self-score { text-align: center; padding: 0.25rem; font-size: 0.85rem; color: #94a3b8; }

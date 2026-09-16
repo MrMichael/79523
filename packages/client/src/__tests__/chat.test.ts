@@ -12,6 +12,7 @@ vi.mock('../../src/api', () => ({ getToken: vi.fn(() => 'T'), setToken: vi.fn(),
 import { useSocket } from '../../src/composables/useSocket'
 import { useGameStore } from '../../src/stores/game'
 import ChatPanel from '../../src/components/game/ChatPanel.vue'
+import ChatDanmaku from '../../src/components/game/ChatDanmaku.vue'
 import PlayerSlot from '../../src/components/game/PlayerSlot.vue'
 import { CHAT_PHRASES, CHAT_MAX_CHARS } from '../../src/chatPhrases'
 
@@ -116,6 +117,48 @@ describe('ChatPanel', () => {
     const line = w.find('.chat-line')
     expect(line.text()).toContain('甲')
     expect(line.text()).toContain('爽雕啷🌊')
+  })
+})
+
+describe('ChatDanmaku', () => {
+  beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
+
+  it('shows a new message as a bullet and clears it after it crosses', async () => {
+    vi.useFakeTimers()
+    const s = useGameStore()
+    const w = mount(ChatDanmaku)
+    s.addChat(msg({ name: '甲', text: '快啲出牌', at: 3 }))
+    await w.vm.$nextTick()
+    const item = w.find('.danmaku-item')
+    expect(item.exists()).toBe(true)
+    expect(item.text()).toContain('甲')
+    expect(item.text()).toContain('快啲出牌')
+    vi.advanceTimersByTime(7000)
+    await w.vm.$nextTick()
+    expect(w.find('.danmaku-item').exists()).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('does not replay messages that were already in the log before it mounted', async () => {
+    const s = useGameStore()
+    s.addChat(msg({ at: 4 }))
+    const w = mount(ChatDanmaku)
+    await w.vm.$nextTick()
+    expect(w.findAll('.danmaku-item')).toHaveLength(0)
+    s.addChat(msg({ text: '拜拜', at: 5 }))
+    await w.vm.$nextTick()
+    expect(w.findAll('.danmaku-item')).toHaveLength(1)
+  })
+
+  it('spreads simultaneous messages across lanes', async () => {
+    const s = useGameStore()
+    const w = mount(ChatDanmaku)
+    s.addChat(msg({ text: 'a', at: 6 }))
+    s.addChat(msg({ text: 'b', at: 7 }))
+    await w.vm.$nextTick()
+    const styles = w.findAll('.danmaku-item').map(i => i.attributes('style'))
+    expect(styles[0]).toContain('top: 0px')
+    expect(styles[1]).toContain('top: 22px')
   })
 })
 

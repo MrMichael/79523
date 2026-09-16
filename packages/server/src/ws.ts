@@ -982,6 +982,12 @@ function leaveCurrentRoom(io: WsServer, playerId: string): void {
   const room = findPlayerRoom(playerId)
   if (!room) return
   chatCooldowns.delete(playerId)
+  // Detach this account's socket from the room's broadcast group. Without this it keeps
+  // receiving the OLD room's events (players_updated, play_made, your_turn...) — those then
+  // overwrote the new room's player list, which is what made the +AI controls vanish after
+  // "leave room → create a new room".
+  const socketId = room.players.find(p => p.id === playerId)?.socketId
+  if (socketId) io.sockets.sockets.get(socketId)?.leave(room.code)
   if (room.game) handlePlayerLeave(io, room.code, room, playerId)
   leaveRoom(room.code, playerId)
   const updated = getRoom(room.code)

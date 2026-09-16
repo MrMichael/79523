@@ -316,13 +316,19 @@ describe('WebSocket integration', () => {
 
     // Host creates a second room -> must leave room A (the guest stays there).
     const createdB = waitFor<{ roomCode: string }>(host, 'room_created')
+    // Register before emitting: player_left is broadcast while create_room is still being handled,
+    // so it can arrive before room_created does.
+    const leftSeen = waitFor<any>(guest, 'player_left')
+    // The host left room A's broadcast group, so it must not also receive its own player_left.
+    const stray = waitFor(host, 'player_left', 600)
     host.emit('create_room', {})
     const roomB = (await createdB).roomCode
     expect(roomB).not.toBe(roomA)
 
-    const left = await waitFor<any>(guest, 'player_left')
+    const left = await leftSeen
     expect(left.playerId).toBe((host as any).__user.id)
     expect(left.players.map((p: any) => p.id)).not.toContain((host as any).__user.id)
+    await expect(stray).rejects.toThrow(/timeout/)
   }, 15000)
 
   test('surrender auto-completes (tribute applied) when nobody acts', async () => {
@@ -363,6 +369,29 @@ describe('WebSocket integration', () => {
       delete process.env.BOXER_TIMEOUT_MS
     }
   }, 60000)
+
+  test('a socket stops receiving the old room broadcast after leaving it', async () => {
+    const host = await connectClient()
+    host.emit('create_room')
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+    const guest = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    guest.emit('join_room', { roomCode })
+    await joined
+
+    const left = waitFor(host, 'player_left')
+    guest.emit('leave_room')
+    await left
+
+    // The host adds an AI → players_updated is broadcast to the room. The guest already left it,
+    // so still receiving it means the old room's events leak into whatever they do next — that
+    // leak overwrote a newly created room's player list and hid the +AI controls.
+    const leaked = waitFor(guest, 'players_updated', 600)
+    const hostSaw = waitFor(host, 'players_updated')
+    host.emit('add_ai')
+    await hostSaw
+    await expect(leaked).rejects.toThrow(/timeout/)
+  }, 15000)
 
   test('reconnecting into a waiting room re-takes a reclaimed seat', async () => {
     // If the grace timer reclaimed the seat while we were away, returning to a room that hasn't

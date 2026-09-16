@@ -42,7 +42,7 @@ import { nextTick, ref, watch } from 'vue'
 import { useGameStore } from '@/stores/game'
 import { useSocket } from '@/composables/useSocket'
 import { CHAT_PHRASES, CHAT_MAX_CHARS } from '@/chatPhrases'
-import { colorForIndex } from '@/playerColors'
+import { colorForId } from '@/playerColors'
 
 const store = useGameStore()
 const { sendChat } = useSocket()
@@ -64,9 +64,7 @@ function send(text: string) {
 
 /** Stable per-player colour, so the same speaker keeps the same name colour. */
 function colorOf(id: string): string {
-  let h = 0
-  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  return colorForIndex(h)
+  return colorForId(id)
 }
 
 // Keep the newest message in view.
