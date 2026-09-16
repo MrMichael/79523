@@ -9,6 +9,7 @@
     <main class="app-main">
       <router-view />
     </main>
+    <UpdateBanner />
   </div>
 </template>
 
@@ -16,6 +17,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useRoom } from '@/composables/useRoom'
+import UpdateBanner from '@/components/common/UpdateBanner.vue'
 
 const route = useRoute()
 const router = useRouter()

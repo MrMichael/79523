@@ -612,6 +612,44 @@ describe('WebSocket integration', () => {
     expect(await err).toMatchObject({ message: '房间不存在', notInRoom: true })
   }, 15000)
 
+  test('reconnecting with no room code (reloaded onto the lobby) still returns you to the game', async () => {
+    // 开局瞬间断线的人错过的 game_started 是追不回来的 —— 他回来时必须能自动回到对局，
+    // 而不是停在大厅/房间页等手动刷新。
+    const { guest, roomCode } = await startTwoPlayerGame()
+    guest.disconnect()
+    await new Promise(r => setTimeout(r, 100))
+
+    const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken((guest as any).__user) } })
+    sockets.push(revived)
+    await waitFor(revived, 'connect')
+    const full = waitFor<any>(revived, 'full_state', 5000)
+    revived.emit('reconnect', {}) // 完全不知道自己该在哪
+    const st = await full
+    expect(st.roomCode).toBe(roomCode)
+    expect(st.myHand.length).toBeGreaterThan(0)
+    expect(st.players).toHaveLength(2)
+  }, 20000)
+
+  test('a stale room code in the URL is corrected to the seat you actually hold', async () => {
+    const { guest, roomCode } = await startTwoPlayerGame()
+    guest.disconnect()
+    await new Promise(r => setTimeout(r, 100))
+
+    const revived = ioc(url, { transports: ['websocket'], forceNew: true, auth: { token: signToken((guest as any).__user) } })
+    sockets.push(revived)
+    await waitFor(revived, 'connect')
+    const full = waitFor<any>(revived, 'full_state', 5000)
+    revived.emit('reconnect', { roomCode: 'ZZZZZZ' }) // 旧房号（房间早没了）
+    expect((await full).roomCode).toBe(roomCode)
+  }, 20000)
+
+  test('a participant who lands on the room page is dropped back into the running game', async () => {
+    const { guest, roomCode } = await startTwoPlayerGame()
+    const full = waitFor<any>(guest, 'full_state', 5000)
+    guest.emit('join_room', { roomCode }) // 他本来就是本局玩家（比如点了"首页"又回来）
+    expect((await full).roomCode).toBe(roomCode)
+  }, 20000)
+
   test('joining a room that is already in progress seats you for the next game', async () => {
     // Mid-game joins used to be refused outright, which is what left a late friend unable to get
     // in at all. Now the seat lands in the room and plays from the next game.

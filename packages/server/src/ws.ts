@@ -1,5 +1,6 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
+import type { Socket } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, setPlayerManaged, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom, getAllRooms } from './room'
@@ -431,6 +432,12 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
     // A seat that joined mid-game plays from the NEXT game — it must not be told this one started
     // (the client would jump onto the game screen without cards or a turn).
     if (!gp) continue
+    // game_started is per-seat, but the seat's socket can be gone (手机断网/切后台): the event is
+    // then simply lost. The seat is still in game.players, so full_state lands as soon as the
+    // client reconnects — log it so "开局时某人没进来" is explained by the log instead of guessed.
+    if (!player.isAI && !io.sockets.sockets.get(player.socketId)) {
+      log('START_UNDELIVERED', roomCode, `${player.name} 开局时不在线（重连后会自动回到对局）`)
+    }
     io.to(player.socketId).emit('game_started', {
       hand: gp.hand,
       players: game.players.map(p => {
@@ -1099,8 +1106,31 @@ function syncPlayerSockets(io: WsServer, room: Room) {
     for (const [sid, sock] of io.sockets.sockets) {
       if (sock.data.playerId === player.id) { player.socketId = sid; found = true; break }
     }
-    if (!found) console.log(`[SYNC] player ${player.id} (${player.name}) socket NOT FOUND among ${io.sockets.sockets.size} sockets`)
+    // Not fatal: the seat may simply be offline. Anything aimed at this seat (game_started …) is
+    // dropped until the client reconnects and gets full_state — so make it visible in the log.
+    if (!found) log('SEAT_NO_SOCKET', room.code, `${player.name} 当前没有活跃连接`)
   }
+}
+
+/** Drop a client straight into a running game (a reconnect, or re-taking a seat it already owns). */
+function sendFullState(io: WsServer, socket: Socket, room: Room, roomCode: string, playerId: string) {
+  const gp = room.game?.players.find(p => p.id === playerId)
+  if (!room.game || !gp) {
+    // No game in progress (or this seat isn't part of it): the client may still be on the game
+    // screen, so send it back to the room view instead of leaving it stuck.
+    socket.emit('next_game_lead', { playerId: '' })
+    return
+  }
+  socket.emit('full_state', {
+    ...room.game,
+    myHand: gp.hand,
+    myId: playerId,
+    roomCode,
+    roomPlayerStats: Object.fromEntries(room.players.map(rp => [rp.id, { wins: rp.wins, boxerWins: rp.boxerWins, connected: rp.connected, managed: !!rp.managed }])),
+    playerNames: Object.fromEntries(room.players.map(rp => [rp.id, rp.name])),
+  })
+  resendBoxerState(io, roomCode, room.game, playerId)
+  if (room.surrenderState) sendSurrenderPrompt(io, roomCode, room.game, room, playerId)
 }
 
 /** Start (or restart) a game for a room. Any room member may trigger it. */
@@ -1223,6 +1253,12 @@ export function setupWebSocket(httpServer: HttpServer) {
       if (!waiting) io.to(roomCode).emit('players_updated', { players: serializePlayers(room) })
       broadcastLobby()
       log(waiting ? 'JOIN_WAIT_NEXT_GAME' : 'JOIN_OK', roomCode, `${me.username} players=${room.players.length}/${room.maxPlayers}`)
+      // Already a participant of the running game (e.g. they tapped 首页 and came back): drop them
+      // straight into it instead of leaving them on the room page.
+      if (room.game?.players.some(p => p.id === me.id)) {
+        log('JOIN_BACK_TO_GAME', roomCode, `${me.username} 已在局中，直接送回对局`)
+        sendFullState(io, socket, room, roomCode, me.id)
+      }
     })
 
     socket.on('start_game', () => {
@@ -1416,61 +1452,62 @@ export function setupWebSocket(httpServer: HttpServer) {
       }
     })
 
-    socket.on('reconnect', ({ roomCode }) => {
+    socket.on('reconnect', ({ roomCode }: { roomCode?: string } = {}) => {
+      // The client's URL may not know where it belongs (it reloaded onto the lobby) or may point at
+      // a room that is gone. Fall back to wherever this account actually has a seat — that is what
+      // gets a player who was offline when the game started back into the game without a refresh.
+      let code = roomCode || ''
+      if (!getRoom(code)) {
+        const seat = findPlayerRoom(me.id)
+        if (!seat) {
+          // No seat anywhere: nothing to restore (the client is just sitting in the lobby).
+          if (code) { log('RECONNECT_REJECT', code, `${me.username}: 房间不存在`); socket.emit('error', { message: '房间不存在', notInRoom: true }) }
+          return
+        }
+        if (seat.code !== code) log('RECONNECT_RESYNC', seat.code, `${me.username} 按座位找回（客户端给的 ${code || '(空)'}）`)
+        code = seat.code
+      }
+
       // If we're somehow still in another room, leave it so events don't leak across tables.
       const current = findPlayerRoom(me.id)
-      if (current && current.code !== roomCode) leaveCurrentRoom(io, me.id)
+      if (current && current.code !== code) leaveCurrentRoom(io, me.id)
 
-      const room = getRoom(roomCode)
-      if (!room) { log('RECONNECT_REJECT', roomCode, `${me.username}: 房间不存在`); socket.emit('error', { message: '房间不存在', notInRoom: true }); return }
+      const room = getRoom(code)
+      if (!room) return
 
       let player = getPlayer(me.id)
+      const reclaimed = !player
       // The grace timer may have reclaimed our seat while we were away. If the room still
       // exists and isn't playing, take it back — otherwise the player is stuck ("can't
       // connect") even though nothing stops them from rejoining.
       if (!player && !room.game) {
         player = createPlayerForAccount(me)
-        if (!joinRoom(roomCode, player)) {
-          log('RECONNECT_REJECT', roomCode, `${me.username}: 房间满或对局已开始，无法取回座位`)
-          socket.emit('error', { message: joinRejection(roomCode), notInRoom: true })
+        if (!joinRoom(code, player)) {
+          log('RECONNECT_REJECT', code, `${me.username}: 房间满或对局已开始，无法取回座位`)
+          socket.emit('error', { message: joinRejection(code), notInRoom: true })
           return
         }
-        log('RECONNECT_RE_SEAT', roomCode, `${me.username} 重新占回座位`)
-        io.to(roomCode).emit('player_joined', { players: serializePlayers(room) })
+        log('RECONNECT_RE_SEAT', code, `${me.username} 重新占回座位`)
+        io.to(code).emit('player_joined', { players: serializePlayers(room) })
         broadcastLobby()
       }
       if (!player) {
-        log('RECONNECT_REJECT', roomCode, `${me.username}: 无座位且对局进行中`)
+        log('RECONNECT_REJECT', code, `${me.username}: 无座位且对局进行中`)
         socket.emit('error', { message: '对局已开始，你已不在该房间', notInRoom: true })
         return
       }
-      log('RECONNECT_OK', roomCode, `${me.username} ${room.game ? '回到对局' : '回到房间'}`)
 
       setPlayerConnected(me.id, true)
       player.connected = true
       socket.data.playerId = me.id
       player.socketId = socket.id
-      socket.join(roomCode)
-      currentPlayerId = me.id; currentRoomCode = roomCode
-      io.to(roomCode).emit('player_reconnected', { playerId: me.id, name: me.username })
-      io.to(roomCode).emit('players_updated', { players: serializePlayers(room) })
-      const gp = room.game?.players.find(p => p.id === me.id)
-      if (room.game && gp) {
-        socket.emit('full_state', {
-          ...room.game,
-          myHand: gp.hand,
-          myId: me.id,
-          roomCode,
-          roomPlayerStats: Object.fromEntries(room.players.map(rp => [rp.id, { wins: rp.wins, boxerWins: rp.boxerWins, connected: rp.connected }])),
-          playerNames: Object.fromEntries(room.players.map(rp => [rp.id, rp.name])),
-        })
-        resendBoxerState(io, roomCode, room.game, me.id)
-        if (room.surrenderState) sendSurrenderPrompt(io, roomCode, room.game, room, me.id)
-      } else {
-        // No game in progress (or this seat isn't part of it): the client may still be on the
-        // game screen, so send it back to the room view instead of leaving it stuck.
-        socket.emit('next_game_lead', { playerId: '' })
-      }
+      socket.join(code)
+      currentPlayerId = me.id; currentRoomCode = code
+      const inGame = !!room.game?.players.some(p => p.id === me.id)
+      log('RECONNECT_OK', code, `${me.username} ${inGame ? '回到对局' : '回到房间'}${reclaimed ? '（重新占座）' : ''}`)
+      io.to(code).emit('player_reconnected', { playerId: me.id, name: me.username })
+      io.to(code).emit('players_updated', { players: serializePlayers(room) })
+      sendFullState(io, socket, room, code, me.id)
     })
   })
   return io

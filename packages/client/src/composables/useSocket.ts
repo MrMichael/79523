@@ -17,8 +17,11 @@ export function useSocket() {
       // After a reconnect (mobile background / page reload) tell the server to re-bind our
       // seat, otherwise it keeps emitting turns to the previous, now-dead socket.
       socket.value.on('connect', () => {
+        // Always ask the server to restore our seat. The URL may carry no room code (the page
+        // reloaded onto the lobby) while this account is still sitting in a game — without this
+        // the player only gets back in after a manual refresh.
         const code = roomCodeFromPath(window.location.pathname)
-        if (code) socket.value?.emit('reconnect', { roomCode: code })
+        socket.value?.emit('reconnect', code ? { roomCode: code } : {})
       })
     }
     return socket.value

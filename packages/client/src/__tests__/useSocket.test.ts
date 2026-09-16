@@ -35,4 +35,13 @@ describe('useSocket reconnect', () => {
     handlers['connect']?.()
     expect(fakeSocket.emit).toHaveBeenCalledWith('reconnect', { roomCode: 'AB12CD' })
   })
+
+  it('still asks to re-bind with no room code when the page is not a room/game page', () => {
+    // 刷新后停在大厅也算：服务端会按账号实际座位把人送回对局，否则只能手动刷新才能回去
+    const { connect } = useSocket()
+    connect()
+    window.history.pushState({}, '', '/lobby')
+    handlers['connect']?.()
+    expect(fakeSocket.emit).toHaveBeenCalledWith('reconnect', {})
+  })
 })
