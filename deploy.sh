@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键部署 / 更新：校验 .env ->（可选）跑测试 -> 构建并重启容器 -> 等待健康 -> 输出状态
+# 一键部署 / 更新：校验 .env ->（可选）跑测试 -> 构建并重启容器 -> 等待健康 -> 重置房间 -> 输出状态
 #
 # 用法:
 #   ./deploy.sh              构建镜像并重启 app（隧道容器不动）
@@ -58,6 +58,28 @@ done
 if [ "$ok" != 1 ]; then
   echo "✗ 健康检查超时，查看日志： docker compose logs --tail=50 app"
   exit 1
+fi
+
+echo "==> 重置在线房间"
+# 房间是内存态的：重启后旧房间若不真清掉，玩家会卡在「进行中」的僵尸房里（无法添加
+# 电脑 / 加不进新局）。这一步是收尾保障，失败不影响部署结果。
+set -a; . ./.env; set +a
+reset_token=$(curl -fsS -X POST http://127.0.0.1:3000/api/auth/login \
+  -H 'content-type: application/json' \
+  -d "$(printf '{"username":"%s","password":"%s"}' "${ADMIN_USERNAME:-admin}" "$ADMIN_PASSWORD")" 2>/dev/null \
+  | grep -o '"token":"[^"]*"' | cut -d'"' -f4) || true
+if [ -n "${reset_token:-}" ]; then
+  reset_codes=$(curl -fsS http://127.0.0.1:3000/api/rooms -H "authorization: Bearer $reset_token" 2>/dev/null \
+    | grep -o '"code":"[^"]*"' | cut -d'"' -f4) || true
+  reset_n=0
+  for code in ${reset_codes:-}; do
+    curl -fsS -o /dev/null -X DELETE "http://127.0.0.1:3000/api/admin/rooms/$code" \
+      -H "authorization: Bearer $reset_token" 2>/dev/null || true
+    reset_n=$((reset_n + 1))
+  done
+  echo "    已清掉 $reset_n 个残留房间"
+else
+  echo "    ⚠ 管理员登录失败，跳过房间重置（不影响部署）"
 fi
 
 echo "==> 状态"
