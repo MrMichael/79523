@@ -2,14 +2,13 @@
   <div class="game-view">
     <div class="game-topbar">
       <button class="leave-btn" @click="onLeave">← 退出</button>
-      <span class="topbar-spacer" />
-      <button
-        class="managed-btn"
-        :class="{ on: iAmManaged }"
-        :title="iAmManaged ? '系统正在帮你出牌，点一下收回' : '临时有事？点一下让系统帮你出牌'"
-        @click="toggleManaged"
-      >{{ iAmManaged ? '🤖 托管中' : '🤖 托管' }}</button>
     </div>
+    <button
+      class="managed-btn"
+      :class="{ on: iAmManaged }"
+      :title="iAmManaged ? '系统正在帮你出牌，点一下收回' : '临时有事？点一下让系统帮你出牌'"
+      @click="toggleManaged"
+    >{{ iAmManaged ? '🤖 托管中' : '🤖 托管' }}</button>
     <GameBoard :players="players" :currentPlayerId="store.currentPlayerId" :playerNames="playerNames"
       @play="onPlay" @pass="onPass" @boxer-move="onBoxerMove" />
   </div>
@@ -53,13 +52,16 @@ function onLeave() { if (confirm('退出将放弃本局，确定吗？')) leaveR
 <style scoped>
 .game-view { height: 100%; display: flex; flex-direction: column; }
 .game-topbar { display: flex; align-items: center; padding: 0.4rem 0.6rem; }
-.topbar-spacer { flex: 1; }
+/* 左下角悬浮：右上角被「排名榜」占着（ScorePopup 固定 top:50px/right:8px），与右下角的 💬 对称。
+   抬到手牌区上方（手牌多时会横向滚动、左边第一张会顶到屏幕左侧）。 */
 .managed-btn {
-  padding: 0.35rem 0.7rem; font-size: 0.78rem; font-weight: 600;
-  border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
-  background: rgba(255,255,255,0.05); color: #94a3b8; cursor: pointer;
+  position: fixed; left: 0.75rem; bottom: 9.75rem; z-index: 90;
+  padding: 0.5rem 0.8rem; font-size: 0.8rem; font-weight: 600; line-height: 1;
+  border: 1px solid rgba(255,255,255,0.14); border-radius: 22px;
+  background: rgba(30,41,59,0.95); color: #94a3b8; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 }
-.managed-btn.on { background: rgba(96,165,250,0.18); border-color: rgba(96,165,250,0.5); color: #93c5fd; }
+.managed-btn.on { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
 .leave-btn {
   padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 600;
   border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
