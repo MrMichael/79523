@@ -6,12 +6,13 @@
     </div>
     <div v-if="!connected" class="offline-badge" title="离线，由系统自动托管">🤖 托管</div>
     <div class="meta"><span class="count">{{ cardCount }}张</span> · <span class="score">{{ score }}分</span></div>
+    <div v-if="bubble" class="bubble">{{ bubble }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
 withDefaults(
-  defineProps<{ name: string; cardCount: number; score: number; isActive: boolean; isHighest?: boolean; color?: string; connected?: boolean }>(),
+  defineProps<{ name: string; cardCount: number; score: number; isActive: boolean; isHighest?: boolean; color?: string; connected?: boolean; bubble?: string }>(),
   { connected: true }
 )
 </script>
@@ -37,4 +38,11 @@ withDefaults(
   background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.4);
   border-radius: 6px; padding: 0 0.35rem; line-height: 1.4;
 }
+/* Quick-chat speech bubble */
+.bubble {
+  max-width: 130px; background: #f8fafc; color: #0f172a; border-radius: 8px;
+  padding: 0.1rem 0.4rem; font-size: 0.72rem; line-height: 1.3; font-weight: 600;
+  word-break: break-word; animation: bubbleIn 0.15s ease;
+}
+@keyframes bubbleIn { from { opacity: 0; transform: translateY(-3px); } }
 </style>

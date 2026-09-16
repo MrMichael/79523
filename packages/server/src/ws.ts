@@ -927,6 +927,12 @@ function handlePlayerLeave(io: WsServer, roomCode: string, room: Room, playerId:
   promptTurn(io, roomCode, game, room, gp.id, { tableCards: game.tableCards })
 }
 
+/** Quick chat (常用语 / free text): max characters per message, per-player cooldown. */
+const CHAT_MAX_CHARS = 30
+const CHAT_COOLDOWN_MS = 3000
+/** Last time each player chatted, for the cooldown. Cleared when they leave the room. */
+const chatCooldowns = new Map<string, number>()
+
 function disconnectKickMs(): number {
   return Number(process.env.DISCONNECT_KICK_MS) || 180000
 }
@@ -975,6 +981,7 @@ function findPlayerRoom(playerId: string): Room | undefined {
 function leaveCurrentRoom(io: WsServer, playerId: string): void {
   const room = findPlayerRoom(playerId)
   if (!room) return
+  chatCooldowns.delete(playerId)
   if (room.game) handlePlayerLeave(io, room.code, room, playerId)
   leaveRoom(room.code, playerId)
   const updated = getRoom(room.code)
@@ -1275,6 +1282,25 @@ export function setupWebSocket(httpServer: HttpServer) {
       leaveCurrentRoom(io, currentPlayerId)
       currentRoomCode = null
       currentPlayerId = null
+    })
+
+    // ── Quick chat (常用语 / free text) — room-scoped, never persisted ──
+
+    socket.on('chat', ({ text }: { text?: unknown } = {}) => {
+      if (!currentRoomCode || !currentPlayerId) return
+      const rp = getRoom(currentRoomCode)?.players.find(p => p.id === currentPlayerId)
+      if (!rp) return
+      const msg = String(text ?? '').replace(/\s+/g, ' ').trim()
+      if (!msg) return
+      if ([...msg].length > CHAT_MAX_CHARS) {
+        socket.emit('error', { message: `讲嘢唔好过 ${CHAT_MAX_CHARS} 个字` }); return
+      }
+      const now = Date.now()
+      if (now - (chatCooldowns.get(currentPlayerId) ?? 0) < CHAT_COOLDOWN_MS) {
+        socket.emit('error', { message: '讲得太快啦，唞一唞' }); return
+      }
+      chatCooldowns.set(currentPlayerId, now)
+      io.to(currentRoomCode).emit('chat_message', { playerId: currentPlayerId, name: rp.name, text: msg, at: now })
     })
 
     // ── Disconnect / Reconnect ──

@@ -12,6 +12,13 @@ export interface PlayerInfo {
   isAI?: boolean
 }
 
+export interface ChatMessage {
+  playerId: string
+  name: string
+  text: string
+  at: number
+}
+
 export interface UIGameState {
   myHand: Card[]
   tableCards: Card[]

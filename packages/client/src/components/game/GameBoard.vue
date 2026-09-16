@@ -1,7 +1,7 @@
 <template>
   <div class="game-board">
     <div class="other-players">
-      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" :connected="p.connected !== false" />
+      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" :connected="p.connected !== false" :bubble="store.chatBubbles[p.id]" />
     </div>
     <div class="table-center">
       <DeckInfo :count="deckCount" />
@@ -19,6 +19,7 @@
     <ScorePopup :scores="scores" :playerNames="playerNames" :players="props.players" />
     <SurrenderOverlay :playerNames="playerNames" />
     <PlayBanner />
+    <ChatPanel />
   </div>
 </template>
 
@@ -38,6 +39,7 @@ import BoxerOverlay from './BoxerOverlay.vue'
 import SurrenderOverlay from './SurrenderOverlay.vue'
 import PlayBanner from './PlayBanner.vue'
 import ScorePopup from './ScorePopup.vue'
+import ChatPanel from './ChatPanel.vue'
 
 const store = useGameStore()
 const props = defineProps<{

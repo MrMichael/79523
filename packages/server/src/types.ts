@@ -98,6 +98,7 @@ export interface ServerEvents {
   next_game_lead: (data: { playerId: string }) => void
   player_disconnected: (data: { playerId: string }) => void
   player_reconnected: (data: { playerId: string }) => void
+  chat_message: (data: { playerId: string; name: string; text: string; at: number }) => void
   error: (data: { message: string }) => void
   full_state: (data: ServerGame & { myHand: Card[]; myId: string; roomCode: string; roomPlayerStats?: Record<string, { wins: number; boxerWins: number; connected?: boolean }>; playerNames?: Record<string, string> }) => void
   scores_updated: (data: { scores: { id: string; totalScore: number }[] }) => void
@@ -120,6 +121,7 @@ export interface ClientEvents {
   boxer_move: (data: { move: BoxerMove }) => void
   leave_room: () => void
   reconnect: (data: { roomCode: string }) => void
+  chat: (data: { text: string }) => void
   surrender_give: (data: { card: Card }) => void      // loser gives largest card
   surrender_pick: (data: { card: Card }) => void      // winner picks from surrendered
   surrender_return: (data: { card: Card }) => void    // winner returns a card

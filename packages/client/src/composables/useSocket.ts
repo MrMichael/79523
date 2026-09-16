@@ -23,6 +23,7 @@ export function useSocket() {
     }
     return socket.value
   }
+  function sendChat(text: string) { socket.value?.emit('chat', { text }) }
   function disconnect() { socket.value?.disconnect(); socket.value = null }
-  return { socket, connect, disconnect }
+  return { socket, connect, disconnect, sendChat }
 }

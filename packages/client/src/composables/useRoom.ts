@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { useSocket } from './useSocket'
 import { useGame } from './useGame'
 import { useGameStore } from '@/stores/game'
-import type { PlayerInfo } from '@/types'
+import type { PlayerInfo, ChatMessage } from '@/types'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -82,6 +82,9 @@ export function useRoom() {
     })
     socket.value?.on('player_left', ({ players: plist }) => {
       players.value = plist as PlayerInfo[]
+    })
+    socket.value?.on('chat_message', (m: ChatMessage) => {
+      useGameStore().addChat(m)
     })
     socket.value?.on('game_started', ({ myId: id }: any) => {
       if (id) myId.value = id

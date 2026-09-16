@@ -51,6 +51,7 @@
         <button @click="handleStart" :disabled="players.length < 2" class="ready-btn full-width">开局</button>
       </div>
     </div>
+    <ChatPanel />
   </div>
 </template>
 
@@ -59,6 +60,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSocket } from '@/composables/useSocket'
 import { useRoom } from '@/composables/useRoom'
 import { useGameStore } from '@/stores/game'
+import ChatPanel from '@/components/game/ChatPanel.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRoute } from 'vue-router'
 

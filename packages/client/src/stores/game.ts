@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Card, GamePhase } from '@79523/engine'
+import type { ChatMessage } from '@/types'
+
+/** How long a chat bubble stays above a player's seat. */
+const CHAT_BUBBLE_MS = 3000
+/** Cap on the in-memory room chat log. */
+const CHAT_LOG_MAX = 50
+const bubbleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export const useGameStore = defineStore('game', () => {
   const myHand = ref<Card[]>([])
@@ -48,6 +55,12 @@ export const useGameStore = defineStore('game', () => {
   /** Filled when the tribute completes, so the overlay can show what each loser gave/received. */
   const surrenderResult = ref<{ id: string; gaveUpCard: Card; receivedCard: Card }[]>([])
 
+  // Quick chat (常用语) — in memory only, per room, cleared when a new game starts.
+  const chatMessages = ref<ChatMessage[]>([])
+  const chatBubbles = ref<Record<string, string>>({})
+  const chatOpen = ref(false)
+  const chatUnread = ref(0)
+
   const selectedCount = computed(() => selectedCards.value.length)
 
   function selectCard(card: Card) {
@@ -67,6 +80,30 @@ export const useGameStore = defineStore('game', () => {
   }
   function addToHand(cards: Card[]) { myHand.value.push(...cards) }
   function clearError() { errorMessage.value = '' }
+  function addChat(m: ChatMessage) {
+    chatMessages.value.push(m)
+    if (chatMessages.value.length > CHAT_LOG_MAX) {
+      chatMessages.value.splice(0, chatMessages.value.length - CHAT_LOG_MAX)
+    }
+    // Speech bubble above the speaker's seat, refreshed if they talk again.
+    chatBubbles.value[m.playerId] = m.text
+    const prev = bubbleTimers.get(m.playerId)
+    if (prev) clearTimeout(prev)
+    bubbleTimers.set(m.playerId, setTimeout(() => {
+      delete chatBubbles.value[m.playerId]
+      bubbleTimers.delete(m.playerId)
+    }, CHAT_BUBBLE_MS))
+    if (!chatOpen.value) chatUnread.value++
+  }
+  function openChat() { chatOpen.value = true; chatUnread.value = 0 }
+  function closeChat() { chatOpen.value = false }
+  function clearChat() {
+    chatMessages.value = []
+    chatBubbles.value = {}
+    chatUnread.value = 0
+    for (const t of bubbleTimers.values()) clearTimeout(t)
+    bubbleTimers.clear()
+  }
   function clearRoundBanner() { roundWinnerId.value = ''; roundScoreCards.value = [] }
   function bumpTrick() { trickVersion.value++ }
 
@@ -110,6 +147,7 @@ export const useGameStore = defineStore('game', () => {
     surrenderInfo.value = ''
     surrenderPickCards.value = []
     surrenderResult.value = []
+    clearChat()
   }
 
   return {
@@ -117,6 +155,7 @@ export const useGameStore = defineStore('game', () => {
     phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
     boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints, boxerSubmitted,
     surrenderActive, surrenderPhase, surrenderRole, surrenderHand, surrenderInfo, surrenderPickCards, surrenderResult,
+    chatMessages, chatBubbles, chatOpen, chatUnread, addChat, openChat, closeChat, clearChat,
     selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick, reset,
   }
 })

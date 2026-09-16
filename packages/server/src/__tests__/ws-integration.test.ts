@@ -714,3 +714,47 @@ describe('WebSocket integration', () => {
     }
   }, 60000)
 })
+
+describe('Quick chat (常用语)', () => {
+  test('broadcasts a message to everyone in the room', async () => {
+    const { host, guest } = await startTwoPlayerGame()
+    const seen = waitFor<any>(guest, 'chat_message')
+    host.emit('chat', { text: '爽雕啷🌊' })
+    const msg = await seen
+    expect(msg.text).toBe('爽雕啷🌊')
+    expect(msg.name).toBeTruthy()
+    expect(typeof msg.at).toBe('number')
+  })
+
+  test('normalizes whitespace and drops an empty message', async () => {
+    const { host, guest } = await startTwoPlayerGame()
+    const seen = waitFor<any>(guest, 'chat_message')
+    host.emit('chat', { text: '  好啵\n ' })
+    expect((await seen).text).toBe('好啵')
+    // Whitespace-only sends nothing at all (and is not an error either).
+    const none = waitFor(guest, 'chat_message', 300)
+    host.emit('chat', { text: '   ' })
+    await expect(none).rejects.toThrow(/timeout/)
+  })
+
+  test('rejects a message longer than 30 characters', async () => {
+    const { host, guest } = await startTwoPlayerGame()
+    const err = waitFor<any>(host, 'error')
+    host.emit('chat', { text: '好'.repeat(31) })
+    expect((await err).message).toContain('30')
+    const none = waitFor(guest, 'chat_message', 300)
+    await expect(none).rejects.toThrow(/timeout/)
+  })
+
+  test('rate-limits rapid messages from the same player', async () => {
+    const { host, guest } = await startTwoPlayerGame()
+    const first = waitFor<any>(guest, 'chat_message')
+    host.emit('chat', { text: '拜拜' })
+    await first
+    const err = waitFor<any>(host, 'error')
+    host.emit('chat', { text: '拜拜' })
+    expect((await err).message).toBeTruthy()
+    const none = waitFor(guest, 'chat_message', 300)
+    await expect(none).rejects.toThrow(/timeout/)
+  }, 10000)
+})

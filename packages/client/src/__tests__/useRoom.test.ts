@@ -22,6 +22,7 @@ vi.mock('../../src/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 'me
 
 import { useSocket } from '../../src/composables/useSocket'
 import { useRoom } from '../../src/composables/useRoom'
+import { useGameStore } from '../../src/stores/game'
 
 const fire = (evt: string, payload?: any) => { for (const fn of handlers[evt] || []) fn(payload) }
 
@@ -50,6 +51,17 @@ describe('useRoom full_state navigation', () => {
     room.setupListeners()
     fire('full_state', { roomCode: 'ABCDEF' })
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it('routes an incoming chat message into the game store', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    fire('chat_message', { playerId: 'p1', name: '甲', text: '好啵', at: 1 })
+    const s = useGameStore()
+    expect(s.chatMessages).toHaveLength(1)
+    expect(s.chatBubbles.p1).toBe('好啵')
   })
 
   it('returns to the lobby when the seat is gone', () => {

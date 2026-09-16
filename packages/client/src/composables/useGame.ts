@@ -64,6 +64,7 @@ export function useGame() {
       store.roundWinnerId = ''
       store.roundScoreCards = []
       store.bumpTrick()
+      store.clearChat() // a fresh game starts with an empty room chat
       playerNames.value = names
       const initScores: Record<string, number> = {}
       for (const p of gamePlayers) initScores[p.id] = p.score
