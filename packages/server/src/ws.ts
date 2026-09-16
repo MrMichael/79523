@@ -21,6 +21,18 @@ function serializePlayers(players: Room['players']) {
   return players.map(p => ({ id: p.id, name: p.name, ready: p.ready, connected: p.connected, isHost: p.isHost, wins: p.wins, boxerWins: p.boxerWins, isAI: !!p.isAI }))
 }
 
+/**
+ * Why a join was refused. Used for both the log line and the user-facing error, so "one player
+ * could never get in" can be told apart from "the room was playing" instead of one vague message.
+ */
+function joinRejection(roomCode: string): string {
+  const room = getRoom(roomCode)
+  if (!room) return '房间不存在'
+  if (room.game) return '对局已开始，暂时无法加入'
+  if (room.players.length >= room.maxPlayers) return '房间已满'
+  return '无法加入该房间'
+}
+
 /** Emit draw_card to all non-finished players after a round ends */
 function emitDrawCards(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room) {
   for (const gp of game.players) {
@@ -964,8 +976,16 @@ function scheduleDisconnectRemoval(io: WsServer, roomCode: string, playerId: str
     // play with. If every human has dropped, abandon the room — otherwise the game keeps
     // auto-playing (30s/turn) and the room shows as "in progress" long after everyone left.
     const othersOnline = room.players.some(p => !p.isAI && p.id !== playerId && p.connected)
-    if (room.game && othersOnline) return
-    if (room.game) room.game = null
+    if (room.game && othersOnline) {
+      log('SEAT_KEEP', roomCode, `${playerId.slice(0, 6)} 对局中且有其他人在线，保留座位`)
+      return
+    }
+    if (room.game) {
+      log('SEAT_ABANDON', roomCode, `${playerId.slice(0, 6)} 无人在线，弃局并释放座位`)
+      room.game = null
+    } else {
+      log('SEAT_RECLAIM', roomCode, `${playerId.slice(0, 6)} 离线超时，回收座位`)
+    }
     leaveCurrentRoom(io, playerId)
   }, delayMs)
 }
@@ -1160,15 +1180,24 @@ export function setupWebSocket(httpServer: HttpServer) {
       socket.join(room.code)
       socket.emit('room_created', { roomCode: room.code })
       broadcastLobby()
+      log('ROOM_CREATE', room.code, `${me.username} (players=${room.players.length})`)
     })
 
     socket.on('join_room', ({ roomCode }) => {
       // One account = one room: drop any previous seat first (unless it's the same room).
       const current = findPlayerRoom(me.id)
-      if (current && current.code !== roomCode) leaveCurrentRoom(io, me.id)
+      if (current && current.code !== roomCode) {
+        log('JOIN_DROP_OLD_SEAT', roomCode, `${me.username} 原在 ${current.code}`)
+        leaveCurrentRoom(io, me.id)
+      }
       const player = createPlayerForAccount(me)
       const room = joinRoom(roomCode, player)
-      if (!room) { socket.emit('error', { message: 'Room not found, full, or game in progress' }); return }
+      if (!room) {
+        const reason = joinRejection(roomCode)
+        log('JOIN_REJECT', roomCode, `${me.username}: ${reason}`)
+        socket.emit('error', { message: reason, notInRoom: true })
+        return
+      }
       const rp = room.players.find(p => p.id === me.id)!
       rp.socketId = socket.id
       rp.connected = true
@@ -1177,14 +1206,15 @@ export function setupWebSocket(httpServer: HttpServer) {
       socket.join(roomCode)
       io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
       broadcastLobby()
+      log('JOIN_OK', roomCode, `${me.username} players=${room.players.length}/${room.maxPlayers}`)
     })
 
     socket.on('start_game', () => {
       const room = currentRoomCode ? getRoom(currentRoomCode) : undefined
       if (!room) return
-      if (!room.players.some(p => p.id === me.id)) { socket.emit('error', { message: '你不在该房间' }); return }
-      if (room.game) { socket.emit('error', { message: '对局已开始' }); return }
-      if (room.players.length < 2) { socket.emit('error', { message: '至少需要 2 名玩家' }); return }
+      if (!room.players.some(p => p.id === me.id)) { log('START_REJECT', currentRoomCode ?? '?', `${me.username}: 不在房间`); socket.emit('error', { message: '你不在该房间', notInRoom: true }); return }
+      if (room.game) { log('START_REJECT', currentRoomCode ?? '?', `${me.username}: 对局已开始`); socket.emit('error', { message: '对局已开始' }); return }
+      if (room.players.length < 2) { log('START_REJECT', currentRoomCode ?? '?', `${me.username}: 人数不足 ${room.players.length}`); socket.emit('error', { message: '至少需要 2 名玩家' }); return }
       startRoom(io, room)
     })
 
@@ -1192,7 +1222,7 @@ export function setupWebSocket(httpServer: HttpServer) {
 
     function manageAIRoom(socket: any): Room | null {
       const room = currentRoomCode ? getRoom(currentRoomCode) : undefined
-      if (!room) { socket.emit('error', { message: 'Room not found' }); return null }
+      if (!room) { socket.emit('error', { message: '房间不存在', notInRoom: true }); return null }
       const host = room.players.find(p => p.id === currentPlayerId)
       if (!host?.isHost) { socket.emit('error', { message: 'Only the host can manage AI' }); return null }
       if (room.game) { socket.emit('error', { message: 'Game already started' }); return null }
@@ -1297,6 +1327,7 @@ export function setupWebSocket(httpServer: HttpServer) {
 
     socket.on('leave_room', () => {
       if (!currentRoomCode || !currentPlayerId) return
+      log('LEAVE', currentRoomCode, `${me.username} 主动退出`)
       leaveCurrentRoom(io, currentPlayerId)
       currentRoomCode = null
       currentPlayerId = null
@@ -1330,7 +1361,11 @@ export function setupWebSocket(httpServer: HttpServer) {
         // A page reload / mobile resume can close the OLD socket *after* the new one has already
         // reconnected. Only mark the seat offline when no socket for this account is left —
         // otherwise the stale close flips `connected` back to false while the player is playing.
-        if (isOnline(me.id)) return
+        if (isOnline(me.id)) {
+          log('DISCONNECT_STALE', currentRoomCode, `${me.username} 仍有其他连接在线，不变更状态`)
+          return
+        }
+        log('DISCONNECT', currentRoomCode, `${me.username} 标记离线（座位保留至宽限期）`)
         setPlayerConnected(currentPlayerId, false)
         const room = getRoom(currentRoomCode)
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })
@@ -1351,7 +1386,7 @@ export function setupWebSocket(httpServer: HttpServer) {
       if (current && current.code !== roomCode) leaveCurrentRoom(io, me.id)
 
       const room = getRoom(roomCode)
-      if (!room) { socket.emit('error', { message: 'Room not found' }); return }
+      if (!room) { log('RECONNECT_REJECT', roomCode, `${me.username}: 房间不存在`); socket.emit('error', { message: '房间不存在', notInRoom: true }); return }
 
       let player = getPlayer(me.id)
       // The grace timer may have reclaimed our seat while we were away. If the room still
@@ -1359,11 +1394,21 @@ export function setupWebSocket(httpServer: HttpServer) {
       // connect") even though nothing stops them from rejoining.
       if (!player && !room.game) {
         player = createPlayerForAccount(me)
-        if (!joinRoom(roomCode, player)) { socket.emit('error', { message: 'Player not found' }); return }
+        if (!joinRoom(roomCode, player)) {
+          log('RECONNECT_REJECT', roomCode, `${me.username}: 房间满或对局已开始，无法取回座位`)
+          socket.emit('error', { message: joinRejection(roomCode), notInRoom: true })
+          return
+        }
+        log('RECONNECT_RE_SEAT', roomCode, `${me.username} 重新占回座位`)
         io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
         broadcastLobby()
       }
-      if (!player) { socket.emit('error', { message: 'Player not found' }); return }
+      if (!player) {
+        log('RECONNECT_REJECT', roomCode, `${me.username}: 无座位且对局进行中`)
+        socket.emit('error', { message: '对局已开始，你已不在该房间', notInRoom: true })
+        return
+      }
+      log('RECONNECT_OK', roomCode, `${me.username} ${room.game ? '回到对局' : '回到房间'}`)
 
       setPlayerConnected(me.id, true)
       player.connected = true

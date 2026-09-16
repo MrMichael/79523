@@ -99,7 +99,7 @@ export interface ServerEvents {
   player_disconnected: (data: { playerId: string }) => void
   player_reconnected: (data: { playerId: string }) => void
   chat_message: (data: { playerId: string; name: string; text: string; at: number }) => void
-  error: (data: { message: string }) => void
+  error: (data: { message: string; notInRoom?: boolean }) => void
   full_state: (data: ServerGame & { myHand: Card[]; myId: string; roomCode: string; roomPlayerStats?: Record<string, { wins: number; boxerWins: number; connected?: boolean }>; playerNames?: Record<string, string> }) => void
   scores_updated: (data: { scores: { id: string; totalScore: number }[] }) => void
   room_stats_updated: (data: { stats: { id: string; name: string; wins: number; boxerWins: number }[] }) => void

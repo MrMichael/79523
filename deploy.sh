@@ -41,6 +41,23 @@ if [ "$RUN_TESTS" = 1 ]; then
   npx pnpm test
 fi
 
+# 重建容器会销毁旧容器的日志（docker 每个容器一份），所以先把现场落到 logs/ 再动手。
+# 丢了现场就只能靠猜——上一次线上排障就是这么丢的。
+echo "==> 收集部署前日志"
+mkdir -p logs
+PRELOG="logs/app-before-$(date +%Y%m%d-%H%M%S).log"
+docker compose logs --timestamps --no-log-prefix app > "$PRELOG" 2>/dev/null || true
+PRELOG_LINES=$(wc -l < "$PRELOG" 2>/dev/null || echo 0)
+echo "    已保存 $PRELOG（${PRELOG_LINES} 行）"
+# 只留最近 10 份，避免磁盘无限增长。
+ls -1t logs/app-before-*.log 2>/dev/null | tail -n +11 | xargs -r rm -f
+if [ "${PRELOG_LINES:-0}" -gt 0 ]; then
+  SUSPECT=$(grep -cE 'JOIN_REJECT|START_REJECT|RECONNECT_REJECT|SEAT_ABANDON|\[E\]|Error' "$PRELOG" || true)
+  if [ "${SUSPECT:-0}" -gt 0 ]; then
+    echo "    可疑行 ${SUSPECT} 条，查看： grep -nE 'JOIN_REJECT|START_REJECT|RECONNECT_REJECT|SEAT_ABANDON|Error' $PRELOG"
+  fi
+fi
+
 if [ -n "$SERVICE" ]; then
   echo "==> $([ "$REBUILD" = 1 ] && echo '构建并重启' || echo '重启') [$SERVICE]"
   if [ "$REBUILD" = 1 ]; then docker compose up -d --build "$SERVICE"; else docker compose up -d "$SERVICE"; fi

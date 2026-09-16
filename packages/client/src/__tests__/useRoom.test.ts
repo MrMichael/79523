@@ -64,12 +64,21 @@ describe('useRoom full_state navigation', () => {
     expect(s.chatBubbles.p1).toBe('好啵')
   })
 
-  it('returns to the lobby when the seat is gone', () => {
+  it('returns to the lobby when the server says we have no seat', () => {
     useSocket().connect()
     const room = useRoom()
     room.resetRoom()
     room.setupListeners()
-    fire('error', { message: 'Player not found' })
+    fire('error', { message: '对局已开始，暂时无法加入', notInRoom: true })
     expect(push).toHaveBeenCalledWith('/lobby')
+  })
+
+  it('stays put on an ordinary error (not every error means we lost the seat)', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    fire('error', { message: 'Not your turn' })
+    expect(push).not.toHaveBeenCalled()
   })
 })

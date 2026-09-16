@@ -6,3 +6,6 @@ dist/
 test-results/
 .claude/
 data/
+
+# 部署时收集的容器日志（含线上排障现场）
+logs/

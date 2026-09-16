@@ -94,14 +94,16 @@ export function useRoom() {
       rlog('next_game_lead')
       router.push(`/room/${roomCode.value}`)
     })
-    socket.value?.on('error', ({ message }) => {
+    socket.value?.on('error', ({ message, notInRoom }: any) => {
       console.error(message)
       const gameStore = useGameStore()
       gameStore.errorMessage = message
       setTimeout(() => { gameStore.clearError() }, 1500)
-      // We no longer have a seat (e.g. the seat was reclaimed while we were offline) — go back
-      // to the lobby instead of sitting on a room/game page we're not part of.
-      if (message === 'Player not found' || message === 'Room not found' || message === '你不在该房间') {
+      // The server flagged this as "you have no seat here" — go back to the lobby instead of
+      // sitting on a room/game page we are not part of. This is what used to leave a player who
+      // was refused a join (game already started / room gone) stranded, looking at the table
+      // but unable to do anything ("join room never works").
+      if (notInRoom) {
         roomCode.value = ''
         players.value = []
         myId.value = ''

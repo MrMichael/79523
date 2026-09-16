@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals'
 import { createServer } from 'http'
 import type { Server as HttpServer } from 'http'
 import type { AddressInfo } from 'net'
@@ -462,6 +463,26 @@ describe('WebSocket integration', () => {
     expect((await err).message).toMatch(/already started/i)
   }, 15000)
 
+  test('join attempts leave a diagnostic trail', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const host = await connectClient()
+      host.emit('create_room', {})
+      const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+      const guest = await connectClient()
+      const joined = waitFor(host, 'player_joined')
+      guest.emit('join_room', { roomCode })
+      await joined
+
+      const lines = spy.mock.calls.map(c => String(c[0])).join('\n')
+      expect(lines).toContain('ROOM_CREATE')
+      expect(lines).toContain('JOIN_OK')
+      expect(lines).toContain(roomCode)
+    } finally {
+      spy.mockRestore()
+    }
+  }, 20000)
+
   test('reconnecting into a waiting room re-takes a reclaimed seat', async () => {
     // If the grace timer reclaimed the seat while we were away, returning to a room that hasn't
     // started playing must put us back in it (otherwise the player is stuck: not in the room,
@@ -530,7 +551,7 @@ describe('WebSocket integration', () => {
       const late = await connectClient()
       const err = waitFor<any>(late, 'error')
       late.emit('join_room', { roomCode })
-      expect((await err).message).toMatch(/not found/i)
+      expect(await err).toMatchObject({ message: '房间不存在', notInRoom: true })
     } finally {
       delete process.env.DISCONNECT_KICK_MS
       delete process.env.TURN_TIMEOUT_MS
@@ -551,7 +572,7 @@ describe('WebSocket integration', () => {
     const late = await connectClient()
     const err = waitFor<any>(late, 'error')
     late.emit('join_room', { roomCode: roomA })
-    expect((await err).message).toMatch(/not found/i)
+    expect(await err).toMatchObject({ message: '房间不存在', notInRoom: true })
   }, 15000)
 
   test('joining a room that is already in progress is rejected', async () => {
@@ -559,7 +580,7 @@ describe('WebSocket integration', () => {
     const late = await connectClient()
     const err = waitFor<any>(late, 'error')
     late.emit('join_room', { roomCode })
-    expect((await err).message).toMatch(/in progress|full|not found/i)
+    expect(await err).toMatchObject({ message: '对局已开始，暂时无法加入', notInRoom: true })
   }, 15000)
 
   test('host can add / fill / remove AI; non-host and in-game attempts are rejected', async () => {
@@ -855,4 +876,80 @@ describe('Quick chat (常用语)', () => {
     const none = waitFor(guest, 'chat_message', 300)
     await expect(none).rejects.toThrow(/timeout/)
   }, 10000)
+})
+
+// ── 3/4 人整桌流程：加房 → 开局 → 连打两局 → 局内退房 ──
+// 线上真实故障就是"多人局有人怎么都进不去 / 打不起来"，所以用真实 socket 把整条链路跑通。
+describe('3/4 人整桌流程', () => {
+  // 让服务端自己出牌（回合计时器极短），测试里不必写牌策略；交粮/拳王也交给超时自动完成。
+  function useFastTimers() {
+    process.env.TURN_TIMEOUT_MS = '10'
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '5'
+    process.env.BOXER_TIMEOUT_MS = '20'
+    process.env.SURRENDER_TIMEOUT_MS = '300'
+  }
+
+  afterEach(() => {
+    for (const k of ['TURN_TIMEOUT_MS', 'BOT_DELAY_MS', 'FLOW_DELAY_MS', 'BOXER_DELAY_MS', 'BOXER_TIMEOUT_MS', 'SURRENDER_TIMEOUT_MS']) {
+      delete process.env[k]
+    }
+  })
+
+  /** n 人坐进同一桌：房主建房，其余按房号加入。 */
+  async function seatTable(n: number) {
+    const host = await connectClient()
+    host.emit('create_room', {})
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+    const guests: Socket[] = []
+    for (let i = 1; i < n; i++) {
+      const guest = await connectClient()
+      const joined = waitFor(host, 'player_joined')
+      guest.emit('join_room', { roomCode })
+      await joined
+      guests.push(guest)
+    }
+    return { host, guests, all: [host, ...guests], roomCode }
+  }
+
+  /** 开一局：确认 n 个人都进了牌桌（各自拿到手牌），然后等这局打完回到房间。 */
+  async function playFullGame(host: Socket, all: Socket[], n: number) {
+    const starts = all.map(s => waitFor<any>(s, 'game_started', 20000))
+    host.emit('start_game')
+    const started = await Promise.all(starts)
+    for (const st of started) {
+      expect(st.players).toHaveLength(n)   // 牌桌上确实是 n 个人
+      expect(st.hand.length).toBeGreaterThan(0) // 每个人都真的被发了牌（不是"人在房间却没进局"）
+    }
+    await Promise.all(all.map(s => waitFor(s, 'next_game_lead', 180000)))
+  }
+
+  for (const n of [3, 4]) {
+    test(`${n} 人：加入 → 连打两局 → 第三局中途退房`, async () => {
+      useFastTimers()
+      const { host, guests, all } = await seatTable(n)
+      expect(all).toHaveLength(n)
+
+      await playFullGame(host, all, n)
+      await playFullGame(host, all, n)
+
+      // 第三局：开局后一名玩家中途退出房间
+      const starts = all.map(s => waitFor<any>(s, 'game_started', 20000))
+      host.emit('start_game')
+      await Promise.all(starts)
+
+      const leaver = guests[0]
+      const leaverId = (leaver as any).__user.id
+      const survivors = [host, ...guests.slice(1)]
+      const left = waitFor<any>(host, 'player_left', 10000)
+      leaver.emit('leave_room')
+      const after = await left
+      expect(after.players).toHaveLength(n - 1)
+      expect(after.players.map((p: any) => p.id)).not.toContain(leaverId)
+
+      // 少了一个人，这局仍然要能打完（不能卡死）
+      await Promise.all(survivors.map(s => waitFor(s, 'next_game_lead', 180000)))
+    }, 600000)
+  }
 })

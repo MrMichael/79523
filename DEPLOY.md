@@ -62,6 +62,12 @@ curl -sk -o /dev/null -w '%{http_code}\n' https://<入口>/     # 200
 
 脚本会校验 `.env` 必填项，构建失败时**中止并退出非零**（不会用旧镜像“假成功”），成功后打印容器状态与公网入口。
 
+部署前会先把**旧容器的日志落盘到 `logs/app-before-<时间戳>.log`**（重建容器会销毁旧容器日志，线上出问题后就无据可查），只保留最近 10 份；如果日志里有 `JOIN_REJECT / START_REJECT / RECONNECT_REJECT / SEAT_ABANDON / Error` 之类可疑行，会直接提示查看命令：
+
+```bash
+grep -nE 'JOIN_REJECT|START_REJECT|RECONNECT_REJECT|SEAT_ABANDON|Error' logs/app-before-*.log
+```
+
 最后一步会用管理员账号**清空所有在线房间**：房间是内存态的，残留的旧房间会把玩家卡在「进行中」的僵尸房里（加不了电脑、也开不了新局）。这一步失败**不会**影响部署结果，只会打印一行警告。
 
 ## 更新流程（改代码后）
