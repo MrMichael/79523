@@ -6,6 +6,7 @@
       <button v-if="auth.isAdmin" :class="{ active: tab === 'admin' }" @click="tab = 'admin'">管理</button>
       <span class="spacer" />
       <span class="me">{{ auth.user?.username }}<span v-if="auth.isAdmin" class="admin-tag"> · 管理员</span></span>
+      <RefreshButton />
       <button class="logout" @click="onLogout">登出</button>
     </nav>
 
@@ -51,6 +52,7 @@ import RoomList from '@/components/lobby/RoomList.vue'
 import UserList from '@/components/lobby/UserList.vue'
 import Leaderboard from '@/components/lobby/Leaderboard.vue'
 import AdminPanel from '@/components/lobby/AdminPanel.vue'
+import RefreshButton from '@/components/common/RefreshButton.vue'
 
 const auth = useAuthStore()
 const router = useRouter()

@@ -5,6 +5,7 @@
       <span v-if="roomCode" class="bar-code">{{ roomCode }}</span>
       <span class="bar-spacer" v-else></span>
       <span class="bar-title">烟三文四</span>
+      <RefreshButton />
     </header>
     <main class="app-main">
       <router-view />
@@ -18,6 +19,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useRoom } from '@/composables/useRoom'
 import UpdateBanner from '@/components/common/UpdateBanner.vue'
+import RefreshButton from '@/components/common/RefreshButton.vue'
 
 const route = useRoute()
 const router = useRouter()
