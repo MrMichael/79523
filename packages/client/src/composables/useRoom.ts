@@ -46,6 +46,10 @@ export function useRoom() {
   function startGame() {
     socket.value?.emit('start_game')
   }
+  /** Manual 托管: the server plays my seat until I turn it off. */
+  function setManaged(managed: boolean) {
+    socket.value?.emit('set_managed', { managed })
+  }
   function addAI() { socket.value?.emit('add_ai') }
   function fillAI() { socket.value?.emit('fill_ai') }
   function removeAI(id: string) { socket.value?.emit('remove_ai', { playerId: id }) }
@@ -91,6 +95,13 @@ export function useRoom() {
     socket.value?.on('chat_message', (m: ChatMessage) => {
       useGameStore().addChat(m)
     })
+    // Someone came back mid-game — announce it on the bullet line so the table notices.
+    socket.value?.on('player_reconnected', ({ playerId, name }: { playerId: string; name?: string }) => {
+      const meId = useAuthStore().user?.id
+      if (playerId === meId) return
+      const who = name || players.value.find(p => p.id === playerId)?.name
+      if (who) useGameStore().pushNotice(`${who} 上线了`)
+    })
     socket.value?.on('game_started', ({ myId: id }: any) => {
       if (id) myId.value = id
       inGame.value = true
@@ -127,5 +138,5 @@ export function useRoom() {
     listenersSetup = false
   }
 
-  return { roomCode, players, myId, inGame, createRoom, joinRoom, leaveRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
+  return { roomCode, players, myId, inGame, createRoom, joinRoom, leaveRoom, startGame, setManaged, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
 }

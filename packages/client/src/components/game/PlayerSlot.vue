@@ -5,6 +5,7 @@
       <div v-for="i in cardCount" :key="i" class="card-back"></div>
     </div>
     <div v-if="!connected" class="offline-badge" title="离线，由系统自动托管">🤖 托管</div>
+    <div v-else-if="managed" class="offline-badge" title="本人开启了托管，系统自动出牌">🤖 托管</div>
     <div class="meta"><span class="count">{{ cardCount }}张</span> · <span class="score">{{ score }}分</span></div>
     <div v-if="bubble" class="bubble">{{ bubble }}</div>
   </div>
@@ -12,7 +13,7 @@
 
 <script setup lang="ts">
 withDefaults(
-  defineProps<{ name: string; cardCount: number; score: number; isActive: boolean; isHighest?: boolean; color?: string; connected?: boolean; bubble?: string }>(),
+  defineProps<{ name: string; cardCount: number; score: number; isActive: boolean; isHighest?: boolean; color?: string; connected?: boolean; managed?: boolean; bubble?: string }>(),
   { connected: true }
 )
 </script>

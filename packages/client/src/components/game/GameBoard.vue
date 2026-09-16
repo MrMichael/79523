@@ -2,11 +2,14 @@
   <div class="game-board">
     <ChatDanmaku />
     <div class="other-players">
-      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" :connected="p.connected !== false" :bubble="store.chatBubbles[p.id]" />
+      <PlayerSlot v-for="p in otherPlayers" :key="p.id" :name="p.name" :cardCount="p.cardCount" :score="p.score" :isActive="p.id === currentPlayerId" :isHighest="p.score === highestScore && p.score > 0" :color="playerColorMap[p.id]" :connected="p.connected !== false" :managed="!!p.managed" :bubble="store.chatBubbles[p.id]" />
+    </div>
+    <div v-if="waitingPlayers.length" class="waiting-line">
+      ⏳ 等下一局：{{ waitingPlayers.join('、') }}
     </div>
     <div class="table-center">
       <DeckInfo :count="deckCount" />
-      <TurnIndicator :isMyTurn="isMyTurn" :currentPlayer="currentPlayerName" :timeLeft="timeLeft" :currentPlayerOffline="currentPlayerOffline" />
+      <TurnIndicator :isMyTurn="isMyTurn" :currentPlayer="currentPlayerName" :timeLeft="timeLeft" :currentPlayerAuto="currentPlayerAuto" />
       <TableCards :cards="tableCards" :plays="store.tablePlays" :colorMap="playerColorMap" />
     </div>
     <div class="self-score" v-if="store.myId && scores[store.myId] !== undefined">
@@ -45,7 +48,7 @@ import ChatDanmaku from './ChatDanmaku.vue'
 
 const store = useGameStore()
 const props = defineProps<{
-  players: { id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number; connected?: boolean }[]
+  players: { id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number; connected?: boolean; managed?: boolean; playing?: boolean }[]
   currentPlayerId: string
   playerNames: Record<string, string>
 }>()
@@ -60,14 +63,16 @@ const scores = computed(() => store.scores)
 const currentPlayerName = computed(() => props.playerNames[props.currentPlayerId] || '...')
 const mustPlay = computed(() => store.isMyTurn && !store.tableCards.length)
 const otherPlayers = computed(() => props.players.filter(p => p.id !== store.myId))
+// 中途进房、还没轮到上场的队友（他们在房间排队，不在本局）
+const waitingPlayers = computed(() => props.players.filter(p => p.playing === false).map(p => p.name))
 const playerColorMap = computed<Record<string, string>>(() =>
   Object.fromEntries(props.players.map((p, i) => [p.id, colorForIndex(i)]))
 )
 const highestScore = computed(() => Math.max(...props.players.map(p => p.score), 0))
-// True while the player whose turn it is is offline (shows "waiting for reconnect").
-const currentPlayerOffline = computed(() => {
+// True while the player whose turn it is is not controlling their seat (offline or 托管).
+const currentPlayerAuto = computed(() => {
   const p = props.players.find(x => x.id === props.currentPlayerId)
-  return !!p && p.connected === false
+  return !!p && (p.connected === false || !!p.managed)
 })
 
 function onPlay(cards: Card[]) { emit('play', cards) }
@@ -78,6 +83,7 @@ function onBoxerMove(move: string) { emit('boxerMove', move) }
 <style scoped>
 .game-board { display: flex; flex-direction: column; height: 100%; max-height: 100dvh; position: relative; }
 .other-players { display: flex; justify-content: center; gap: 0.75rem; padding: 0.5rem; flex-wrap: wrap; flex-shrink: 0; }
+.waiting-line { text-align: center; font-size: 0.75rem; color: #93c5fd; padding: 0 0.5rem 0.25rem; }
 .table-center { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 0.4rem; padding: 0.25rem 0.5rem; overflow-y: auto; }
 .self-score { text-align: center; padding: 0.25rem; font-size: 0.85rem; color: #94a3b8; }
 .self-score strong { color: #fbbf24; }

@@ -76,6 +76,12 @@ export function setPlayerConnected(id: string, connected: boolean): void {
   if (player) player.connected = connected
 }
 
+/** Manual 托管: the seat is played by the server until the player turns it off. */
+export function setPlayerManaged(id: string, managed: boolean): void {
+  const player = players.get(id)
+  if (player) player.managed = managed
+}
+
 export function resetPlayerReady(id: string): void {
   const player = players.get(id)
   if (player) player.ready = false

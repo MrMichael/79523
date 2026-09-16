@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http'
 import { Server } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
-import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, resetPlayerReady } from './player'
+import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, setPlayerManaged, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom, getAllRooms } from './room'
 import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn, getSmallestCard } from '@79523/engine'
@@ -17,8 +17,15 @@ import type { Room } from './types'
 /** Socket.IO server instance type (client→server events, server→client events). */
 type WsServer = Server<ClientEvents, ServerEvents>
 
-function serializePlayers(players: Room['players']) {
-  return players.map(p => ({ id: p.id, name: p.name, ready: p.ready, connected: p.connected, isHost: p.isHost, wins: p.wins, boxerWins: p.boxerWins, isAI: !!p.isAI }))
+function serializePlayers(room: Room) {
+  // `playing: false` = seated but only from the next game on (joined mid-game). The client needs
+  // this to tell "really in this game" from "queueing", which otherwise look identical.
+  const inGame = room.game?.players
+  return room.players.map(p => ({
+    id: p.id, name: p.name, ready: p.ready, connected: p.connected, isHost: p.isHost,
+    wins: p.wins, boxerWins: p.boxerWins, isAI: !!p.isAI, managed: !!p.managed,
+    playing: !inGame || inGame.some(gp => gp.id === p.id),
+  }))
 }
 
 /**
@@ -173,7 +180,7 @@ function scheduleBotBoxer(io: WsServer, roomCode: string, game: NonNullable<Room
     if (bs.currentMoves.has(id)) continue
     const rp = room?.players.find(p => p.id === id)
     // AI and offline (auto-managed / 托管) players punch promptly.
-    const delay = rp?.isAI || !rp?.connected ? botDelayMs() : humanTimeout
+    const delay = rp?.isAI || !rp?.connected || rp?.managed ? botDelayMs() : humanTimeout
     const t = setTimeout(() => {
       const cur = game.boxerState
       if (cur !== bs) return
@@ -191,8 +198,8 @@ function scheduleBotSurrender(io: WsServer, roomCode: string, game: NonNullable<
   if (!ss) return
   const actorId = ss.phase === 'losers_give' ? ss.loserIds[ss.currentPairIndex] : ss.winnerIds[ss.currentPairIndex]
   const actor = room.players.find(p => p.id === actorId)
-  // Only AI, or a human who is offline (auto-managed / 托管) — present players choose themselves.
-  if (!actor || (!actor.isAI && actor.connected)) return
+  // Only AI, or a human who is offline / 托管 — present players choose themselves.
+  if (!actor || (!actor.isAI && actor.connected && !actor.managed)) return
   setTimeout(() => {
     if (room.surrenderState !== ss) return
     const gp = game.players.find(p => p.id === actorId)
@@ -428,7 +435,7 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
       hand: gp.hand,
       players: game.players.map(p => {
         const rp = room.players.find(r => r.id === p.id)
-        return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0, connected: rp?.connected ?? true }
+        return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0, connected: rp?.connected ?? true, managed: !!rp?.managed }
       }),
       leadPlayerId,
       playerNames,
@@ -810,9 +817,9 @@ function boxerDelayMs(): number {
 function promptTurn(io: WsServer, roomCode: string, game: NonNullable<Room['game']>, room: Room, playerId: string, extra: Record<string, unknown> = {}) {
   const rp = room.players.find(p => p.id === playerId)
   if (!rp) return
-  // AI, or a human who is offline (auto-managed / 托管): act promptly instead of waiting out
-  // the whole turn timer, so an absent player never drags the game and it keeps pace.
-  if (rp.isAI || !rp.connected) {
+  // AI, or a human who is offline or asked to be managed (托管): act promptly instead of
+  // waiting out the whole turn timer, so an absent player never drags the game and it keeps pace.
+  if (rp.isAI || !rp.connected || rp.managed) {
     clearTurnTimer(roomCode)
     scheduleBotTurn(io, roomCode, game, room, playerId)
     return
@@ -1027,7 +1034,7 @@ function leaveCurrentRoom(io: WsServer, playerId: string): void {
   leaveRoom(room.code, playerId)
   const updated = getRoom(room.code)
   if (updated) {
-    io.to(room.code).emit('player_left', { playerId, players: serializePlayers(updated.players) })
+    io.to(room.code).emit('player_left', { playerId, players: serializePlayers(updated) })
   }
   broadcastLobby()
 }
@@ -1119,7 +1126,7 @@ function startRoom(io: WsServer, room: Room) {
         hand: gp.hand,
         players: game.players.map(p => {
           const rp = room.players.find(r => r.id === p.id)
-          return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0, connected: rp?.connected ?? true }
+          return { ...p, hand: [], cardCount: p.hand.length, wins: rp?.wins || 0, boxerWins: rp?.boxerWins || 0, connected: rp?.connected ?? true, managed: !!rp?.managed }
         }),
         leadPlayerId: '',
         playerNames,
@@ -1210,10 +1217,10 @@ export function setupWebSocket(httpServer: HttpServer) {
       socket.data.playerId = player.id
       currentPlayerId = player.id; currentRoomCode = roomCode
       socket.join(roomCode)
-      io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
+      io.to(roomCode).emit('player_joined', { players: serializePlayers(room) })
       // While a game runs, in-game clients render `players_updated` as the table — a waiting seat
       // has no cards and no turn, so broadcasting it would add a ghost player to the board.
-      if (!waiting) io.to(roomCode).emit('players_updated', { players: serializePlayers(room.players) })
+      if (!waiting) io.to(roomCode).emit('players_updated', { players: serializePlayers(room) })
       broadcastLobby()
       log(waiting ? 'JOIN_WAIT_NEXT_GAME' : 'JOIN_OK', roomCode, `${me.username} players=${room.players.length}/${room.maxPlayers}`)
     })
@@ -1243,14 +1250,14 @@ export function setupWebSocket(httpServer: HttpServer) {
       if (!room) return
       if (room.players.length >= room.maxPlayers) { socket.emit('error', { message: 'Room is full' }); return }
       joinRoom(room.code, createAIPlayer(room))
-      io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
+      io.to(room.code).emit('players_updated', { players: serializePlayers(room) })
     })
 
     socket.on('fill_ai', () => {
       const room = manageAIRoom(socket)
       if (!room) return
       while (room.players.length < room.maxPlayers) joinRoom(room.code, createAIPlayer(room))
-      io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
+      io.to(room.code).emit('players_updated', { players: serializePlayers(room) })
     })
 
     socket.on('remove_ai', ({ playerId }) => {
@@ -1259,7 +1266,7 @@ export function setupWebSocket(httpServer: HttpServer) {
       const target = room.players.find(p => p.id === playerId)
       if (!target?.isAI) { socket.emit('error', { message: 'Target is not an AI player' }); return }
       leaveRoom(room.code, playerId)
-      io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
+      io.to(room.code).emit('players_updated', { players: serializePlayers(room) })
     })
 
     // ── Surrender events ──
@@ -1332,6 +1339,26 @@ export function setupWebSocket(httpServer: HttpServer) {
       maybeResolveBoxer(io, currentRoomCode, room.game)
     })
 
+    // ── Manual 托管 (auto-play my seat until I turn it off) ──
+
+    socket.on('set_managed', ({ managed }) => {
+      if (!currentRoomCode || !currentPlayerId) return
+      const room = getRoom(currentRoomCode)
+      const rp = room?.players.find(p => p.id === currentPlayerId)
+      if (!room || !rp) return
+      setPlayerManaged(currentPlayerId, !!managed)
+      log(managed ? 'MANAGED_ON' : 'MANAGED_OFF', currentRoomCode, me.username)
+      io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room) })
+      const game = room.game
+      if (!managed || !game) return
+      // Take over the current situation right away rather than waiting out the timers.
+      if (game.boxerState) {
+        scheduleBotBoxer(io, currentRoomCode, game)
+      } else if (game.players[game.currentPlayerIndex]?.id === currentPlayerId) {
+        promptTurn(io, currentRoomCode, game, room, currentPlayerId)
+      }
+    })
+
     // ── Explicit leave (disconnect keeps the seat instead — option B) ──
 
     socket.on('leave_room', () => {
@@ -1378,7 +1405,7 @@ export function setupWebSocket(httpServer: HttpServer) {
         setPlayerConnected(currentPlayerId, false)
         const room = getRoom(currentRoomCode)
         io.to(currentRoomCode).emit('player_disconnected', { playerId: currentPlayerId })
-        if (room) io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room.players) })
+        if (room) io.to(currentRoomCode).emit('players_updated', { players: serializePlayers(room) })
         scheduleDisconnectRemoval(io, currentRoomCode, currentPlayerId, disconnectKickMs())
         // If it was their turn, hand it to the auto-manager right away instead of burning the
         // whole turn timer (the reverse happens in promptTurn for any later turn).
@@ -1409,7 +1436,7 @@ export function setupWebSocket(httpServer: HttpServer) {
           return
         }
         log('RECONNECT_RE_SEAT', roomCode, `${me.username} 重新占回座位`)
-        io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
+        io.to(roomCode).emit('player_joined', { players: serializePlayers(room) })
         broadcastLobby()
       }
       if (!player) {
@@ -1425,8 +1452,8 @@ export function setupWebSocket(httpServer: HttpServer) {
       player.socketId = socket.id
       socket.join(roomCode)
       currentPlayerId = me.id; currentRoomCode = roomCode
-      io.to(roomCode).emit('player_reconnected', { playerId: me.id })
-      io.to(roomCode).emit('players_updated', { players: serializePlayers(room.players) })
+      io.to(roomCode).emit('player_reconnected', { playerId: me.id, name: me.username })
+      io.to(roomCode).emit('players_updated', { players: serializePlayers(room) })
       const gp = room.game?.players.find(p => p.id === me.id)
       if (room.game && gp) {
         socket.emit('full_state', {

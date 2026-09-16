@@ -108,6 +108,19 @@ describe('ChatPanel', () => {
     expect(s.chatUnread).toBe(0)
   })
 
+  it('renders a system notice (上线提醒) without a speaker name', async () => {
+    const s = useGameStore()
+    const w = mount(ChatPanel)
+    await w.find('.chat-fab').trigger('click')
+    s.pushNotice('大鹏 上线了')
+    await w.vm.$nextTick()
+    const line = w.find('.chat-line')
+    expect(line.text()).toContain('大鹏 上线了')
+    expect(s.chatMessages[0].system).toBe(true)
+    // 系统通知不算"未读聊天"
+    expect(s.chatUnread).toBe(0)
+  })
+
   it('renders the room chat log', async () => {
     const s = useGameStore()
     const w = mount(ChatPanel)
@@ -137,6 +150,18 @@ describe('ChatDanmaku', () => {
     await w.vm.$nextTick()
     expect(w.find('.danmaku-item').exists()).toBe(false)
     vi.useRealTimers()
+  })
+
+  it('shows a system notice as a bullet with the system style', async () => {
+    const s = useGameStore()
+    const w = mount(ChatDanmaku)
+    s.pushNotice('散散 上线了')
+    await w.vm.$nextTick()
+    const item = w.find('.danmaku-item')
+    expect(item.exists()).toBe(true)
+    expect(item.classes()).toContain('system')
+    expect(item.text()).toContain('散散 上线了')
+    expect(item.find('.dm-name').exists()).toBe(false) // 系统通知没有说话人
   })
 
   it('does not replay messages that were already in the log before it mounted', async () => {

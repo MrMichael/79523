@@ -1,14 +1,14 @@
 <template>
   <div class="turn" :class="{ active: isMyTurn }">
     <span v-if="isMyTurn" class="turn-label">⏱ 你的回合</span>
-    <span v-else-if="currentPlayerOffline" class="turn-label managed">🤖 {{ currentPlayer }} 离线托管中，自动出牌…</span>
+    <span v-else-if="currentPlayerAuto" class="turn-label managed">🤖 {{ currentPlayer }} 托管中，自动出牌…</span>
     <span v-else class="turn-label waiting">等待 {{ currentPlayer }} 出牌</span>
     <span v-if="isMyTurn" class="timer">{{ timeLeft }}s</span>
   </div>
 </template>
 
 <script setup lang="ts">
-defineProps<{ isMyTurn: boolean; currentPlayer: string; timeLeft: number; currentPlayerOffline?: boolean }>()
+defineProps<{ isMyTurn: boolean; currentPlayer: string; timeLeft: number; currentPlayerAuto?: boolean }>()
 </script>
 
 <style scoped>

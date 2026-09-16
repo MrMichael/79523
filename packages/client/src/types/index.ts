@@ -10,6 +10,10 @@ export interface PlayerInfo {
   wins?: number
   boxerWins?: number
   isAI?: boolean
+  /** 托管: the server plays this seat (offline seats are managed implicitly). */
+  managed?: boolean
+  /** false = seated for the next game only (joined while a game was running). */
+  playing?: boolean
 }
 
 export interface ChatMessage {
@@ -17,6 +21,8 @@ export interface ChatMessage {
   name: string
   text: string
   at: number
+  /** System notice (e.g. "某人上线了") — shown as a bullet, not as someone speaking. */
+  system?: boolean
 }
 
 export interface UIGameState {

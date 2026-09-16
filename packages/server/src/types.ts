@@ -10,6 +10,8 @@ export interface Player {
   wins: number
   boxerWins: number
   isAI?: boolean
+  /** Player asked to be auto-played (托管) — treated like an offline seat for turn routing. */
+  managed?: boolean
 }
 
 export interface Room {
@@ -78,10 +80,10 @@ export interface GamePlayer {
 
 export interface ServerEvents {
   room_created: (data: { roomCode: string }) => void
-  player_joined: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
-  player_left: (data: { playerId: string; players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
-  players_updated: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean }[] }) => void
-  game_started: (data: { hand: Card[]; players: (GamePlayer & { connected?: boolean })[]; leadPlayerId: string; playerNames: Record<string, string>; myId: string; deckCount: number }) => void
+  player_joined: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean; managed?: boolean; playing?: boolean }[] }) => void
+  player_left: (data: { playerId: string; players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean; managed?: boolean; playing?: boolean }[] }) => void
+  players_updated: (data: { players: { id: string; name: string; ready: boolean; connected: boolean; isHost: boolean; wins: number; boxerWins: number; isAI: boolean; managed?: boolean; playing?: boolean }[] }) => void
+  game_started: (data: { hand: Card[]; players: (GamePlayer & { connected?: boolean; managed?: boolean })[]; leadPlayerId: string; playerNames: Record<string, string>; myId: string; deckCount: number }) => void
   your_turn: (data: { timeout: number; hand: Card[]; deckCount: number; tableCards?: Card[] }) => void
   play_made: (data: { playerId: string; nextPlayerId: string; play: { type: string; cards: Card[] }; tableCards: Card[] }) => void
   pass_made: (data: { playerId: string; nextPlayerId: string }) => void
@@ -97,7 +99,7 @@ export interface ServerEvents {
   surrender_update: (data: { phase: string; info: string; surrenderedCards?: { playerId: string; card: Card }[] }) => void
   next_game_lead: (data: { playerId: string }) => void
   player_disconnected: (data: { playerId: string }) => void
-  player_reconnected: (data: { playerId: string }) => void
+  player_reconnected: (data: { playerId: string; name?: string }) => void
   chat_message: (data: { playerId: string; name: string; text: string; at: number }) => void
   error: (data: { message: string; notInRoom?: boolean }) => void
   full_state: (data: ServerGame & { myHand: Card[]; myId: string; roomCode: string; roomPlayerStats?: Record<string, { wins: number; boxerWins: number; connected?: boolean }>; playerNames?: Record<string, string> }) => void
@@ -122,6 +124,7 @@ export interface ClientEvents {
   leave_room: () => void
   reconnect: (data: { roomCode: string }) => void
   chat: (data: { text: string }) => void
+  set_managed: (data: { managed: boolean }) => void
   surrender_give: (data: { card: Card }) => void      // loser gives largest card
   surrender_pick: (data: { card: Card }) => void      // winner picks from surrendered
   surrender_return: (data: { card: Card }) => void    // winner returns a card

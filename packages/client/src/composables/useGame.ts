@@ -27,7 +27,7 @@ function stopCountdown() {
 }
 
 // Module-level shared state — survives route changes, shared across all useGame() calls
-const players = ref<{ id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number; connected: boolean }[]>([])
+const players = ref<{ id: string; name: string; cardCount: number; score: number; wins: number; boxerWins: number; connected: boolean; managed?: boolean; playing?: boolean }[]>([])
 const playerNames = ref<Record<string, string>>({})
 
 /** Reset shared game state + listener guard when leaving the game (e.g. returning home).
@@ -77,6 +77,7 @@ export function useGame() {
         wins: p.wins || 0,
         boxerWins: p.boxerWins || 0,
         connected: p.connected ?? true,
+        managed: !!p.managed,
       }))
     })
 
@@ -88,6 +89,7 @@ export function useGame() {
         const rp = byId.get(p.id)
         if (rp) {
           p.connected = rp.connected !== false
+          p.managed = !!rp.managed
           if (rp.name) p.name = rp.name
         }
       }
@@ -305,6 +307,7 @@ export function useGame() {
           wins: roomPlayerStats?.[p.id]?.wins || p.wins || 0,
           boxerWins: roomPlayerStats?.[p.id]?.boxerWins || p.boxerWins || 0,
           connected: roomPlayerStats?.[p.id]?.connected ?? p.connected ?? true,
+          managed: roomPlayerStats?.[p.id]?.managed ?? !!p.managed,
         }))
       }
       if (gamePlayers && currentPlayerIndex !== undefined) {

@@ -415,6 +415,43 @@ describe('WebSocket integration', () => {
     await expect(leaked).rejects.toThrow(/timeout/)
   }, 15000)
 
+  test('开启托管会立刻接手当前回合（不是等回合计时器）', async () => {
+    process.env.TURN_TIMEOUT_MS = '60000' // 故意很长：只有托管能推动
+    process.env.BOT_DELAY_MS = '5'
+    try {
+      const { leadSocket, otherSocket } = await startTwoPlayerGame()
+      const acted = waitFor<any>(otherSocket, 'play_made', 4000)
+      leadSocket.emit('set_managed', { managed: true })
+      await acted
+    } finally {
+      delete process.env.TURN_TIMEOUT_MS
+      delete process.env.BOT_DELAY_MS
+    }
+  }, 30000)
+
+  test('全员托管时整局能自己打完，且托管标记会广播给全桌', async () => {
+    // 这就是"自测"用法：一个人开一局、双方都托管，整局自动跑完，不用开多个浏览器。
+    process.env.TURN_TIMEOUT_MS = '60000'
+    process.env.BOT_DELAY_MS = '5'
+    process.env.FLOW_DELAY_MS = '5'
+    process.env.BOXER_DELAY_MS = '5'
+    process.env.BOXER_TIMEOUT_MS = '60000'
+    process.env.SURRENDER_TIMEOUT_MS = '60000'
+    try {
+      const { host, guest } = await startTwoPlayerGame()
+      const gameOver = waitFor(host, 'game_over', 60000)
+      const hostFlag = waitFor<any>(host, 'players_updated')
+      host.emit('set_managed', { managed: true })
+      await hostFlag
+      const bothFlag = waitFor<any>(host, 'players_updated')
+      guest.emit('set_managed', { managed: true })
+      expect((await bothFlag).players.every((p: any) => p.managed)).toBe(true)
+      await gameOver
+    } finally {
+      for (const k of ['TURN_TIMEOUT_MS', 'BOT_DELAY_MS', 'FLOW_DELAY_MS', 'BOXER_DELAY_MS', 'BOXER_TIMEOUT_MS', 'SURRENDER_TIMEOUT_MS']) delete process.env[k]
+    }
+  }, 120000)
+
   test('a game left with one player is abandoned instead of hanging "in progress"', async () => {
     const { host, guest } = await startTwoPlayerGame()
     // The survivor is told to go back to the room (see the emit in handlePlayerLeave — without it
@@ -973,7 +1010,10 @@ describe('3/4 人整桌流程', () => {
     const noStart = waitFor(late, 'game_started', 800)
     const joined = waitFor<any>(host, 'player_joined', 10000)
     late.emit('join_room', { roomCode })
-    expect((await joined).players).toHaveLength(4)
+    const plist = (await joined).players
+    expect(plist).toHaveLength(4)
+    // 关键：他是"排队等下一局"，不是本局参战 —— 界面靠这个字段区分
+    expect(plist.filter((p: any) => p.playing === false).map((p: any) => p.name)).toEqual([(late as any).__user.username])
     await expect(noStart).rejects.toThrow(/timeout/) // 不会被丢进正在打的一局
 
     // 本局打完

@@ -4,9 +4,10 @@
       v-for="d in items"
       :key="d.key"
       class="danmaku-item"
+      :class="{ system: d.system }"
       :style="{ top: `${d.lane * 22}px`, animationDuration: `${DURATION}ms` }"
     >
-      <span class="dm-name" :style="{ color: d.color }">{{ d.name }}</span>{{ d.text }}
+  <span class="dm-name" v-if="!d.system" :style="{ color: d.color }">{{ d.name }}</span>{{ d.text }}
     </span>
   </div>
 </template>
@@ -22,7 +23,7 @@ const DURATION = 7000
 const LANES = 2
 
 const store = useGameStore()
-const items = ref<{ key: number; name: string; text: string; color: string; lane: number }[]>([])
+const items = ref<{ key: number; name: string; text: string; color: string; lane: number; system?: boolean }[]>([])
 let seq = 0
 let lane = 0
 // Anything already in the log happened before we got here (reload / reconnect) — skip it, so it
@@ -35,7 +36,7 @@ watch(() => store.chatMessages.length, (len) => {
   for (let i = lastIndex; i < len; i++) {
     const m = store.chatMessages[i]
     const key = ++seq
-    items.value.push({ key, name: m.name, text: m.text, color: colorForId(m.playerId), lane: lane++ % LANES })
+    items.value.push({ key, name: m.name, text: m.text, color: colorForId(m.playerId), lane: lane++ % LANES, system: m.system })
     setTimeout(() => { items.value = items.value.filter(d => d.key !== key) }, DURATION)
   }
   lastIndex = len
@@ -55,6 +56,8 @@ watch(() => store.chatMessages.length, (len) => {
   will-change: transform;
 }
 .dm-name { margin-right: 0.4rem; }
+/* System notices (e.g. "某人上线了") — no speaker name, tinted so they read as announcements. */
+.danmaku-item.system { color: #fbbf24; }
 @keyframes danmaku-move {
   from { transform: translateX(0); }
   to { transform: translateX(calc(-100% - 100vw)); }

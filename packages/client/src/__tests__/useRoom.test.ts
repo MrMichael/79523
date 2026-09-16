@@ -64,6 +64,37 @@ describe('useRoom full_state navigation', () => {
     expect(s.chatBubbles.p1).toBe('好啵')
   })
 
+  it('emits set_managed when the 托管 button is used', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    room.setManaged(true)
+    expect(fakeSocket.emit).toHaveBeenCalledWith('set_managed', { managed: true })
+  })
+
+  it('turns someone else coming online into a bullet notice', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    fire('player_reconnected', { playerId: 'other', name: '大鹏' })
+    const store = useGameStore()
+    expect(store.chatMessages.at(-1)?.text).toContain('大鹏 上线了')
+    expect(store.chatMessages.at(-1)?.system).toBe(true)
+  })
+
+  it('does not announce my own reconnect', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    const store = useGameStore()
+    const before = store.chatMessages.length
+    fire('player_reconnected', { playerId: 'me', name: '我' })
+    expect(store.chatMessages.length).toBe(before)
+  })
+
   it('returns to the lobby when the server says we have no seat', () => {
     useSocket().connect()
     const room = useRoom()

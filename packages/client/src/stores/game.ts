@@ -93,7 +93,11 @@ export const useGameStore = defineStore('game', () => {
       delete chatBubbles.value[m.playerId]
       bubbleTimers.delete(m.playerId)
     }, CHAT_BUBBLE_MS))
-    if (!chatOpen.value) chatUnread.value++
+    if (!chatOpen.value && !m.system) chatUnread.value++
+  }
+  /** A system notice rides the same pipe as chat so it becomes a bullet on the game screen. */
+  function pushNotice(text: string) {
+    addChat({ playerId: 'system', name: '', text, at: Date.now(), system: true })
   }
   function openChat() { chatOpen.value = true; chatUnread.value = 0 }
   function closeChat() { chatOpen.value = false }
@@ -155,7 +159,7 @@ export const useGameStore = defineStore('game', () => {
     phase, currentPlayerId, myId, gameOver, lastPlayType, lastPlayedCards, lastPlayPlayer, lastPassPlayer, roundWinnerId, roundScoreCards, finalRankings,
     boxerPhase, boxerScoreCard, boxerParticipants, boxerMoves, boxerSurvivors, boxerWinnerId, boxerCountdown, boxerGameScores, boxerWinCounts, boxerWinPoints, boxerSubmitted,
     surrenderActive, surrenderPhase, surrenderRole, surrenderHand, surrenderInfo, surrenderPickCards, surrenderResult,
-    chatMessages, chatBubbles, chatOpen, chatUnread, addChat, openChat, closeChat, clearChat,
+    chatMessages, chatBubbles, chatOpen, chatUnread, addChat, pushNotice, openChat, closeChat, clearChat,
     selectedCount, selectCard, clearSelection, removeFromHand, addToHand, clearRoundBanner, errorMessage, clearError, trickVersion, bumpTrick, reset,
   }
 })
