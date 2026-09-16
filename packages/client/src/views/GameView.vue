@@ -2,6 +2,8 @@
   <div class="game-view">
     <div class="game-topbar">
       <button class="leave-btn" @click="onLeave">← 退出</button>
+      <span class="topbar-spacer" />
+      <SoundToggle />
     </div>
     <GameBoard :players="players" :currentPlayerId="store.currentPlayerId" :playerNames="playerNames"
       @play="onPlay" @pass="onPass" @boxer-move="onBoxerMove" />
@@ -16,6 +18,7 @@ import { useGame } from '@/composables/useGame'
 import { useRoom } from '@/composables/useRoom'
 import { useSocket } from '@/composables/useSocket'
 import { useGameStore } from '@/stores/game'
+import SoundToggle from '@/components/common/SoundToggle.vue'
 import type { Card } from '@79523/engine'
 
 const route = useRoute()
@@ -41,7 +44,8 @@ function onLeave() { if (confirm('退出将放弃本局，确定吗？')) leaveR
 
 <style scoped>
 .game-view { height: 100%; display: flex; flex-direction: column; }
-.game-topbar { display: flex; padding: 0.4rem 0.6rem; }
+.game-topbar { display: flex; align-items: center; padding: 0.4rem 0.6rem; }
+.topbar-spacer { flex: 1; }
 .leave-btn {
   padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 600;
   border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;

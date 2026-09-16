@@ -6,6 +6,7 @@ import type { PlayerInfo, ChatMessage } from '@/types'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { play } from '@/audio'
 
 // Module-level shared state — survives route changes
 const roomCode = ref('')
@@ -84,6 +85,7 @@ export function useRoom() {
       players.value = plist as PlayerInfo[]
     })
     socket.value?.on('chat_message', (m: ChatMessage) => {
+      if (m.playerId !== myId.value) play('chat')
       useGameStore().addChat(m)
     })
     socket.value?.on('game_started', ({ myId: id }: any) => {
