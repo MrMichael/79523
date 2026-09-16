@@ -17,13 +17,21 @@ export function createPlayer(socketId: string, name: string, isHost = false): Pl
   return player
 }
 
-let aiCounter = 0
+let aiSeq = 0
 
-export function createAIPlayer(_roomCode: string): Player {
-  aiCounter++
+/**
+ * The room is passed (not just its code) so the AI can be numbered within its own table:
+ * a fresh room starts at 电脑1 again instead of inheriting a server-wide counter that kept
+ * growing for the lifetime of the process (电脑137 …).
+ */
+export function createAIPlayer(room: { players: Player[] }): Player {
+  const taken = new Set(room.players.filter(p => p.isAI).map(p => p.name))
+  let n = 1
+  while (taken.has(`电脑${n}`)) n++
+  aiSeq++
   const player: Player = {
-    id: `ai-${aiCounter}-${Date.now().toString(36)}`,
-    name: `电脑${aiCounter}`,
+    id: `ai-${aiSeq}-${Date.now().toString(36)}`,
+    name: `电脑${n}`,
     socketId: '',
     ready: true,
     connected: true,

@@ -13,10 +13,8 @@
     "test:client": "pnpm --filter @79523/client test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
     "@vue/test-utils": "^2.4.11",
     "happy-dom": "^20.10.1",
-    "playwright": "^1.60.0",
     "pnpm": "^8.15.9",
     "vitest": "^1.6.0"
   }

@@ -45,9 +45,6 @@ npx pnpm test          # 引擎 + 服务端 + 前端测试
 npx pnpm test:engine   # 引擎测试 (vitest)
 npx pnpm test:server   # 服务端测试 (jest)
 npx pnpm test:client   # 前端测试 (vitest)
-
-# E2E 冒烟测试
-npx playwright test --config packages/client/playwright.config.ts
 ```
 
 ## 游戏规则
@@ -194,7 +191,6 @@ sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
 | 层 | 工具 | 测试数 |
 |---|------|--------|
 | 引擎 | vitest | 85 |
-| 服务端 | jest | 270 |
-| 客户端 | vitest | 56 |
-| E2E | playwright | 1 |
-| **总计** | | **412** |
+| 服务端 | jest | 283 |
+| 客户端 | vitest | 76 |
+| **总计** | | **444** |

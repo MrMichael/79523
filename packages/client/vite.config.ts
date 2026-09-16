@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, configDefaults } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
@@ -16,6 +16,8 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
-    exclude: ['e2e/**', 'node_modules/**'],
+    // Keep vitest's own defaults (dist, .git, …): replacing `exclude` wholesale let stray files
+    // from a scratch directory get collected and run as tests.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 } as any)

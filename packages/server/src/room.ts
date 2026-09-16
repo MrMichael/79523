@@ -32,15 +32,23 @@ export function leaveRoom(code: string, playerId: string): Room | null {
   if (!room) return null
   room.players = room.players.filter(p => p.id !== playerId)
   removePlayer(playerId)
-  // Last human left — dissolve the room immediately (an AI-only room must not linger).
+  // Last human left — dissolve the room immediately (an AI-only room must not linger), and drop
+  // the seats that go with it: otherwise every abandoned room leaks its AI players into the
+  // global registry (and their names keep being swallowed) for the life of the process.
   if (!room.players.some(p => !p.isAI)) {
+    for (const p of room.players) removePlayer(p.id)
     rooms.delete(code)
     return null
   }
   return room
 }
 
-export function destroyRoom(code: string): void { rooms.delete(code) }
+export function destroyRoom(code: string): void {
+  const room = rooms.get(code)
+  if (!room) return
+  for (const p of room.players) removePlayer(p.id)
+  rooms.delete(code)
+}
 export function setRoomGame(code: string, game: Room['game']): void {
   const room = rooms.get(code)
   if (room) room.game = game

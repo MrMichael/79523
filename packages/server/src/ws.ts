@@ -1191,14 +1191,14 @@ export function setupWebSocket(httpServer: HttpServer) {
       const room = manageAIRoom(socket)
       if (!room) return
       if (room.players.length >= room.maxPlayers) { socket.emit('error', { message: 'Room is full' }); return }
-      joinRoom(room.code, createAIPlayer(room.code))
+      joinRoom(room.code, createAIPlayer(room))
       io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
     })
 
     socket.on('fill_ai', () => {
       const room = manageAIRoom(socket)
       if (!room) return
-      while (room.players.length < room.maxPlayers) joinRoom(room.code, createAIPlayer(room.code))
+      while (room.players.length < room.maxPlayers) joinRoom(room.code, createAIPlayer(room))
       io.to(room.code).emit('players_updated', { players: serializePlayers(room.players) })
     })
 

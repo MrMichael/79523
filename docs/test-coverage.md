@@ -84,23 +84,16 @@
 
 ---
 
-## 四、E2E 冒烟测试（playwright）— 1 test
-
-创建房间→加入→准备→开局 UI 验证。
-
----
-
-## 五、运行命令
+## 四、运行命令
 
 ```bash
-npx pnpm test                     # 引擎 + 服务端
+npx pnpm test                     # 引擎 + 服务端 + 前端
 npx pnpm test:engine              # 引擎 (vitest)
 npx pnpm test:server              # 服务端 (jest)
 npx pnpm test:client              # 客户端 (vitest)
-npx playwright test --config packages/client/playwright.config.ts  # E2E
 ```
 
-## 六、已修复 Bug (v0.1→v0.3)
+## 五、已修复 Bug (v0.1→v0.3)
 
 | Bug | 根因 | 修复 |
 |-----|------|------|
