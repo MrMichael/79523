@@ -916,7 +916,19 @@ function handlePlayerLeave(io: WsServer, roomCode: string, room: Room, playerId:
   if (!game) return
   const { needsResume } = removeGamePlayer(game, playerId)
 
-  if (game.players.length === 0) { room.game = null; return }
+  // Fewer than two players cannot produce a turn. Abandon the game instead of leaving the room
+  // hanging as "in progress" forever: a solo occupant can never finish, and add_ai is refused
+  // while a game exists — the table was stuck with no way out (that's the zombie 进行中 room).
+  // The timers capture this game object, so cancel them before dropping it.
+  if (game.players.length < 2) {
+    clearTurnTimer(roomCode)
+    clearBoxerTimers(roomCode)
+    room.game = null
+    // Everyone still here is sitting on the game screen; send them back to the room, which is
+    // waiting again (they can invite, add AI, or start over).
+    io.to(roomCode).emit('next_game_lead', { playerId: '' })
+    return
+  }
   if (game.boxerState) { maybeResolveBoxer(io, roomCode, game); return }
   if (game.gameOver) return
   // A surrender in progress will hand out the first turn itself once it completes.

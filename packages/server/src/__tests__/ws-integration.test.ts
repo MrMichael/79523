@@ -178,13 +178,34 @@ describe('WebSocket integration', () => {
   }, 60000)
 
   test('a player who leaves mid-game hands the turn to the survivor', async () => {
-    const { leadSocket, otherSocket } = await startTwoPlayerGame()
-    const survivorTurn = waitFor<any>(otherSocket, 'your_turn', 4000)
+    // Three players (two humans + an AI): after one human leaves the table is still playable, so
+    // the turn must move on instead of stalling on the empty seat. (When only one player is left
+    // the game is abandoned instead — see the test below.)
+    const host = await connectClient()
+    host.emit('create_room', {})
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+    const aiAdded = waitFor(host, 'players_updated')
+    host.emit('add_ai')
+    await aiAdded
+
+    const guest = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    guest.emit('join_room', { roomCode })
+    await joined
+
+    const hostStart = waitFor<any>(host, 'game_started')
+    const guestStart = waitFor<any>(guest, 'game_started')
+    host.emit('start_game')
+    const [hs] = await Promise.all([hostStart, guestStart])
+
+    const leadSocket = hs.myId === hs.leadPlayerId ? host : guest
+    const otherSocket = leadSocket === host ? guest : host
+    const survivorTurn = waitFor<any>(otherSocket, 'your_turn', 6000)
     // Explicit leave (the tab closing / disconnect does NOT remove the seat — option B).
     leadSocket.emit('leave_room')
     const turn = await survivorTurn
     expect(turn.hand).toBeDefined()
-  }, 15000)
+  }, 20000)
 
   test('a disconnected player keeps their seat and is auto-managed (托管)', async () => {
     process.env.DISCONNECT_KICK_MS = '100'
@@ -391,6 +412,54 @@ describe('WebSocket integration', () => {
     host.emit('add_ai')
     await hostSaw
     await expect(leaked).rejects.toThrow(/timeout/)
+  }, 15000)
+
+  test('a game left with one player is abandoned instead of hanging "in progress"', async () => {
+    const { host, guest } = await startTwoPlayerGame()
+    // The survivor is told to go back to the room (see the emit in handlePlayerLeave — without it
+    // they'd stay on a dead game screen).
+    const backToRoom = waitFor<any>(host, 'next_game_lead')
+    const left = waitFor(host, 'player_left')
+    guest.emit('leave_room')
+    await left
+    await backToRoom
+
+    // Adding an AI only works in the waiting phase, so it doubles as "is the dead game gone?".
+    // While the 1-player game lingers this fails with "Game already started" and the room stays
+    // stuck as 进行中 forever (that's the zombie table players kept getting trapped in).
+    const err = waitFor<any>(host, 'error', 600)
+    const updated = waitFor<any>(host, 'players_updated')
+    host.emit('add_ai')
+    const list = await updated
+    expect(list.players.filter((p: any) => p.isAI)).toHaveLength(1)
+    await expect(err).rejects.toThrow(/timeout/)
+  }, 15000)
+
+  test('a game that still has two players (human + AI) keeps running', async () => {
+    const host = await connectClient()
+    host.emit('create_room', {})
+    const { roomCode } = await waitFor<{ roomCode: string }>(host, 'room_created')
+    const aiAdded = waitFor(host, 'players_updated')
+    host.emit('add_ai')
+    await aiAdded
+
+    const guest = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    guest.emit('join_room', { roomCode })
+    await joined
+    const hostStart = waitFor(host, 'game_started')
+    const guestStart = waitFor(guest, 'game_started')
+    host.emit('start_game')
+    await Promise.all([hostStart, guestStart])
+
+    const left = waitFor(host, 'player_left')
+    guest.emit('leave_room')
+    await left
+
+    // A human + an AI is still a playable table — abandoning it would be wrong.
+    const err = waitFor<any>(host, 'error')
+    host.emit('add_ai')
+    expect((await err).message).toMatch(/already started/i)
   }, 15000)
 
   test('reconnecting into a waiting room re-takes a reclaimed seat', async () => {
