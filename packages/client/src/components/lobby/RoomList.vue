@@ -5,7 +5,7 @@
       <span class="host">{{ r.hostName }}</span>
       <span class="count">{{ r.playerCount }}/{{ r.maxPlayers }}</span>
       <span class="state" :class="{ live: r.inGame }">{{ r.inGame ? '进行中' : '等待中' }}</span>
-      <button :disabled="r.inGame || r.playerCount >= r.maxPlayers" @click="$emit('join', r.code)">加入</button>
+      <button :disabled="r.playerCount >= r.maxPlayers" @click="$emit('join', r.code)">{{ r.inGame ? '等下一局' : '加入' }}</button>
     </div>
     <p v-if="!rooms.length" class="empty">暂无房间</p>
   </div>

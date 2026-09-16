@@ -19,18 +19,23 @@ import Leaderboard from '../components/lobby/Leaderboard.vue'
 describe('RoomList', () => {
   beforeEach(() => { setActivePinia(createPinia()) })
 
-  it('renders rooms and disables in-game join', () => {
+  it('lets you join an in-game room (waiting for the next game) but not a full one', () => {
     const w = mount(RoomList, {
       props: {
         rooms: [
           { code: 'A1', hostName: 'h', playerCount: 1, maxPlayers: 6, inGame: false },
           { code: 'B2', hostName: 'h', playerCount: 4, maxPlayers: 6, inGame: true },
+          { code: 'C3', hostName: 'h', playerCount: 6, maxPlayers: 6, inGame: false },
         ],
       },
     })
     const items = w.findAll('.room-item')
-    expect(items).toHaveLength(2)
-    expect(items[1].find('button').attributes('disabled')).toBeDefined()
+    expect(items).toHaveLength(3)
+    // 进行中的房间也能进（进去等下一局），按钮文案说明白这一点
+    expect(items[1].find('button').attributes('disabled')).toBeUndefined()
+    expect(items[1].find('button').text()).toBe('等下一局')
+    // 满员才是真的进不去
+    expect(items[2].find('button').attributes('disabled')).toBeDefined()
   })
 
   it('emits join with the room code', async () => {

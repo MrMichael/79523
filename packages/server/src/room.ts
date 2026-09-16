@@ -19,9 +19,9 @@ export function joinRoom(code: string, player: Player): Room | null {
   const room = rooms.get(code)
   if (!room) return null
   if (room.players.some(p => p.id === player.id)) return room
-  // No joining mid-game: a seat added now wouldn't be in game.players, which breaks
-  // turn routing. Reconnecting players restore their existing seat instead.
-  if (room.game) return null
+  // Joining while a game runs is allowed: the seat lands in `room.players` only and takes part
+  // from the NEXT game (turn routing needs game.players, so never add to that here). Everything
+  // that walks the table must therefore skip seats that aren't in `game.players`.
   if (room.players.length >= room.maxPlayers) return null
   room.players.push(player)
   return room

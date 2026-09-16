@@ -26,7 +26,9 @@
       <div v-if="players.length === 0" class="empty-hint">等待其他玩家加入...</div>
     </div>
 
-    <div v-if="isHost" class="ai-controls">
+    <div v-if="inGame" class="waiting-banner">⏳ 对局进行中 —— 你会在下一局自动参战</div>
+
+    <div v-if="isHost && !inGame" class="ai-controls">
       <button class="ai-btn" @click="addAI">＋AI</button>
       <button class="ai-btn fill" @click="fillAI">补满 AI</button>
     </div>
@@ -45,10 +47,11 @@
     </div>
 
     <div class="room-footer">
-      <p v-if="players.length < 2" class="hint">至少 2 人才能开局</p>
+      <p v-if="inGame" class="hint">这局打完就能一起玩</p>
+      <p v-else-if="players.length < 2" class="hint">至少 2 人才能开局</p>
       <p v-else class="hint ready-text">人齐了，任意玩家都可点开局</p>
       <div class="footer-btns">
-        <button @click="handleStart" :disabled="players.length < 2" class="ready-btn full-width">开局</button>
+        <button @click="handleStart" :disabled="inGame || players.length < 2" class="ready-btn full-width">{{ inGame ? '对局进行中' : '开局' }}</button>
       </div>
     </div>
     <ChatPanel />
@@ -65,7 +68,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRoute } from 'vue-router'
 
 const { connect } = useSocket()
-const { roomCode, players, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom, leaveRoom } = useRoom()
+const { roomCode, players, inGame, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom, leaveRoom } = useRoom()
 const gameStore = useGameStore()
 const auth = useAuthStore()
 const route = useRoute()
@@ -151,6 +154,11 @@ function copyCode() {
 .player-name { font-weight: 600; flex: 1; color: #e2e8f0; }
 .player-state { font-size: 0.8rem; color: #64748b; }
 .empty-hint { text-align: center; color: #475569; padding: 2rem; }
+.waiting-banner {
+  text-align: center; font-size: 0.82rem; font-weight: 600; color: #93c5fd;
+  background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.3);
+  border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem;
+}
 .room-footer { text-align: center; padding-top: 1rem; }
 .footer-btns { display: flex; gap: 0.75rem; }
 .hint { font-size: 0.85rem; color: #64748b; margin-bottom: 0.75rem; }

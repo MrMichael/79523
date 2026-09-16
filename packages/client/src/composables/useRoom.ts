@@ -11,6 +11,8 @@ import { useAuthStore } from '@/stores/auth'
 const roomCode = ref('')
 const players = ref<PlayerInfo[]>([])
 const myId = ref('')
+/** A game is running in this room — joiners are seated for the NEXT game. */
+const inGame = ref(false)
 let listenersSetup = false
 
 const rlog = (evt: string, detail?: any) => {
@@ -38,6 +40,7 @@ export function useRoom() {
     roomCode.value = ''
     players.value = []
     myId.value = ''
+    inGame.value = false
     router.push('/lobby')
   }
   function startGame() {
@@ -52,6 +55,7 @@ export function useRoom() {
     try {
       const d = await apiFetch(`/api/rooms/${roomCode.value}`)
       players.value = d.players as PlayerInfo[]
+      inGame.value = !!d.inGame
       const auth = useAuthStore()
       myId.value = auth.user?.id || ''
     } catch { /* room no longer exists */ }
@@ -75,6 +79,7 @@ export function useRoom() {
       // A player who was offline when the host started the game missed `game_started`;
       // on reconnect the server sends full_state, so move them onto the game screen.
       const target = code || roomCode.value
+      inGame.value = true
       if (target && router.currentRoute.value.name !== 'game') router.push(`/game/${target}`)
     })
     socket.value?.on('players_updated', ({ players: plist }) => {
@@ -88,10 +93,12 @@ export function useRoom() {
     })
     socket.value?.on('game_started', ({ myId: id }: any) => {
       if (id) myId.value = id
+      inGame.value = true
       router.push(`/game/${roomCode.value}`)
     })
     socket.value?.on('next_game_lead', () => {
       rlog('next_game_lead')
+      inGame.value = false
       router.push(`/room/${roomCode.value}`)
     })
     socket.value?.on('error', ({ message, notInRoom }: any) => {
@@ -116,8 +123,9 @@ export function useRoom() {
     roomCode.value = ''
     players.value = []
     myId.value = ''
+    inGame.value = false
     listenersSetup = false
   }
 
-  return { roomCode, players, myId, createRoom, joinRoom, leaveRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
+  return { roomCode, players, myId, inGame, createRoom, joinRoom, leaveRoom, startGame, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
 }

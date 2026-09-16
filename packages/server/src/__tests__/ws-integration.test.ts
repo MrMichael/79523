@@ -575,12 +575,18 @@ describe('WebSocket integration', () => {
     expect(await err).toMatchObject({ message: '房间不存在', notInRoom: true })
   }, 15000)
 
-  test('joining a room that is already in progress is rejected', async () => {
-    const { roomCode } = await startTwoPlayerGame()
+  test('joining a room that is already in progress seats you for the next game', async () => {
+    // Mid-game joins used to be refused outright, which is what left a late friend unable to get
+    // in at all. Now the seat lands in the room and plays from the next game.
+    const { host, roomCode } = await startTwoPlayerGame()
     const late = await connectClient()
-    const err = waitFor<any>(late, 'error')
+    const noStart = waitFor(late, 'game_started', 600)
+    const joined = waitFor<any>(host, 'player_joined')
     late.emit('join_room', { roomCode })
-    expect(await err).toMatchObject({ message: '对局已开始，暂时无法加入', notInRoom: true })
+    const list = await joined
+    expect(list.players).toHaveLength(3)
+    // ...but not into the game that is already dealt.
+    await expect(noStart).rejects.toThrow(/timeout/)
   }, 15000)
 
   test('host can add / fill / remove AI; non-host and in-game attempts are rejected', async () => {
@@ -952,4 +958,33 @@ describe('3/4 人整桌流程', () => {
       await Promise.all(survivors.map(s => waitFor(s, 'next_game_lead', 180000)))
     }, 600000)
   }
+
+  test('中途进房的人不打本局，但下一局自动参战', async () => {
+    useFastTimers()
+    const { host, guests, all, roomCode } = await seatTable(3)
+
+    // 第一局：3 人开打
+    const starts = all.map(s => waitFor<any>(s, 'game_started', 20000))
+    host.emit('start_game')
+    await Promise.all(starts)
+
+    // 第四个人在对局中加入
+    const late = await connectClient()
+    const noStart = waitFor(late, 'game_started', 800)
+    const joined = waitFor<any>(host, 'player_joined', 10000)
+    late.emit('join_room', { roomCode })
+    expect((await joined).players).toHaveLength(4)
+    await expect(noStart).rejects.toThrow(/timeout/) // 不会被丢进正在打的一局
+
+    // 本局打完
+    await Promise.all(all.map(s => waitFor(s, 'next_game_lead', 180000)))
+
+    // 下一局：四个人全部参战
+    const starts2 = [host, ...guests, late].map(s => waitFor<any>(s, 'game_started', 20000))
+    host.emit('start_game')
+    for (const st of await Promise.all(starts2)) {
+      expect(st.players).toHaveLength(4)
+      expect(st.hand.length).toBeGreaterThan(0)
+    }
+  }, 400000)
 })

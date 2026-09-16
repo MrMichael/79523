@@ -420,7 +420,10 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
   const playerNames: Record<string, string> = {}
   for (const p of room.players) playerNames[p.id] = p.name
   for (const player of room.players) {
-    const gp = game.players.find(p => p.id === player.id)!
+    const gp = game.players.find(p => p.id === player.id)
+    // A seat that joined mid-game plays from the NEXT game — it must not be told this one started
+    // (the client would jump onto the game screen without cards or a turn).
+    if (!gp) continue
     io.to(player.socketId).emit('game_started', {
       hand: gp.hand,
       players: game.players.map(p => {
@@ -1110,7 +1113,8 @@ function startRoom(io: WsServer, room: Room) {
     const playerNames: Record<string, string> = {}
     for (const p of room.players) playerNames[p.id] = p.name
     for (const player of room.players) {
-      const gp = game.players.find(p => p.id === player.id)!
+      const gp = game.players.find(p => p.id === player.id)
+      if (!gp) continue // mid-game joiner: sits out until the next round of the game
       io.to(player.socketId).emit('game_started', {
         hand: gp.hand,
         players: game.players.map(p => {
@@ -1198,6 +1202,8 @@ export function setupWebSocket(httpServer: HttpServer) {
         socket.emit('error', { message: reason, notInRoom: true })
         return
       }
+      // Joined while a game is running → this seat plays from the next game on.
+      const waiting = !!room.game && !room.game.players.some(p => p.id === me.id)
       const rp = room.players.find(p => p.id === me.id)!
       rp.socketId = socket.id
       rp.connected = true
@@ -1205,8 +1211,11 @@ export function setupWebSocket(httpServer: HttpServer) {
       currentPlayerId = player.id; currentRoomCode = roomCode
       socket.join(roomCode)
       io.to(roomCode).emit('player_joined', { players: serializePlayers(room.players) })
+      // While a game runs, in-game clients render `players_updated` as the table — a waiting seat
+      // has no cards and no turn, so broadcasting it would add a ghost player to the board.
+      if (!waiting) io.to(roomCode).emit('players_updated', { players: serializePlayers(room.players) })
       broadcastLobby()
-      log('JOIN_OK', roomCode, `${me.username} players=${room.players.length}/${room.maxPlayers}`)
+      log(waiting ? 'JOIN_WAIT_NEXT_GAME' : 'JOIN_OK', roomCode, `${me.username} players=${room.players.length}/${room.maxPlayers}`)
     })
 
     socket.on('start_game', () => {
