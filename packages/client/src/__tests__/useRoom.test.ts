@@ -64,6 +64,26 @@ describe('useRoom full_state navigation', () => {
     expect(s.chatBubbles.p1).toBe('好啵')
   })
 
+  it('navigates with the room code carried by game_started (local state may be empty)', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    // 玩家还站在大厅时收到开局 —— 本地 roomCode 是空的，必须用服务端给的房号
+    fire('game_started', { myId: 'me', roomCode: 'ABCDEF' })
+    expect(push).toHaveBeenCalledWith('/game/ABCDEF')
+  })
+
+  it('asks the server for a state sync when a view mounts', () => {
+    useSocket().connect()
+    const room = useRoom()
+    room.resetRoom()
+    room.setupListeners()
+    window.history.pushState({}, '', '/game/ABCDEF')
+    room.requestSync()
+    expect(fakeSocket.emit).toHaveBeenCalledWith('sync_me', { roomCode: 'ABCDEF' })
+  })
+
   it('emits set_managed when the 托管 button is used', () => {
     useSocket().connect()
     const room = useRoom()

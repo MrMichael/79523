@@ -46,6 +46,7 @@ import { useRouter } from 'vue-router'
 import { apiFetch } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { useRoom } from '@/composables/useRoom'
 import RoomList from '@/components/lobby/RoomList.vue'
 import UserList from '@/components/lobby/UserList.vue'
 import Leaderboard from '@/components/lobby/Leaderboard.vue'
@@ -54,6 +55,9 @@ import AdminPanel from '@/components/lobby/AdminPanel.vue'
 const auth = useAuthStore()
 const router = useRouter()
 const { socket, connect } = useSocket()
+// 在这里（socket 刚建立时）就把房间/对局监听器挂上：玩家可能停在大厅时被开局，
+// 若等 RoomView 挂载再注册，那一瞬间的 game_started 会直接丢掉。
+const { setupListeners } = useRoom()
 const tab = ref<'hall' | 'rank' | 'admin'>('hall')
 const users = ref<any[]>([])
 const rooms = ref<any[]>([])
@@ -79,6 +83,7 @@ function onSocketConnect() { refreshUsers().catch(() => {}); refreshRooms().catc
 
 onMounted(async () => {
   connect()
+  setupListeners()
   // Attach lobby listeners immediately so we don't miss the on-connect broadcast.
   socket.value?.on('lobby_users_updated', onLobbyUsers)
   socket.value?.on('lobby_rooms_updated', onLobbyRooms)

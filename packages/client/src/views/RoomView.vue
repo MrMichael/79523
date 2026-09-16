@@ -69,7 +69,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRoute } from 'vue-router'
 
 const { connect } = useSocket()
-const { roomCode, players, inGame, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom, leaveRoom } = useRoom()
+const { roomCode, players, inGame, startGame, addAI, fillAI, removeAI, setupListeners, refreshRoom, leaveRoom, requestSync } = useRoom()
 const gameStore = useGameStore()
 const auth = useAuthStore()
 const route = useRoute()
@@ -81,6 +81,9 @@ onMounted(async () => {
   setupListeners()
   if (!auth.user) await auth.loadMe()
   await refreshRoom()
+  // 主动要一次状态：如果我其实是本局玩家（比如刚才错过了 game_started），服务端会用
+  // full_state 把我送回对局页，而不需要用户手动刷新。
+  requestSync()
 })
 
 const isHost = computed(() => players.value.some(p => p.id === auth.user?.id && p.isHost))

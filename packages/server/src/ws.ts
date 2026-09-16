@@ -449,6 +449,7 @@ function emitGameStart(io: WsServer, roomCode: string, game: NonNullable<Room['g
       leadPlayerId,
       playerNames,
       myId: player.id,
+      roomCode,
       deckCount: game.deck.length,
     })
   }
@@ -1163,6 +1164,7 @@ function startRoom(io: WsServer, room: Room) {
         leadPlayerId: '',
         playerNames,
         myId: player.id,
+        roomCode: room.code,
         deckCount: game.deck.length,
       })
     }
@@ -1395,6 +1397,26 @@ export function setupWebSocket(httpServer: HttpServer) {
       } else if (game.players[game.currentPlayerIndex]?.id === currentPlayerId) {
         promptTurn(io, currentRoomCode, game, room, currentPlayerId)
       }
+    })
+
+    // ── Quiet resync: "give me the state of my seat" ──
+    // Sent whenever a view mounts, so a client that missed an event (e.g. game_started fired while
+    // it was still in the lobby and had no listeners registered) heals itself — no refresh needed.
+    socket.on('sync_me', ({ roomCode }: { roomCode?: string } = {}) => {
+      const seat = findPlayerRoom(me.id)
+      const code = (roomCode && getRoom(roomCode)) ? roomCode : seat?.code
+      if (!code) return
+      const room = getRoom(code)
+      const rp = room?.players.find(p => p.id === me.id)
+      if (!room || !rp) return
+      // Also repairs a stale socketId (a reconnect whose `reconnect` never landed).
+      rp.socketId = socket.id
+      rp.connected = true
+      socket.data.playerId = me.id
+      currentPlayerId = me.id; currentRoomCode = code
+      socket.join(code)
+      log('SYNC_ME', code, `${me.username} ${room.game ? '对局中' : '房间中'}`)
+      sendFullState(io, socket, room, code, me.id)
     })
 
     // ── Explicit leave (disconnect keeps the seat instead — option B) ──

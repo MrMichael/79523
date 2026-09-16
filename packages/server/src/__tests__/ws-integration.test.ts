@@ -630,6 +630,36 @@ describe('WebSocket integration', () => {
     expect(st.players).toHaveLength(2)
   }, 20000)
 
+  test('sync_me hands a participant the game state (so a missed event self-heals)', async () => {
+    const { host, roomCode } = await startTwoPlayerGame()
+    const full = waitFor<any>(host, 'full_state', 5000)
+    host.emit('sync_me', { roomCode })
+    const st = await full
+    expect(st.roomCode).toBe(roomCode)
+    expect(st.myHand.length).toBeGreaterThan(0)
+  }, 15000)
+
+  test('sync_me with no room code still finds my seat', async () => {
+    const { host, roomCode } = await startTwoPlayerGame()
+    const full = waitFor<any>(host, 'full_state', 5000)
+    host.emit('sync_me', {}) // 客户端在大厅、不知道自己该在哪
+    expect((await full).roomCode).toBe(roomCode)
+  }, 15000)
+
+  test('sync_me sends a queued seat back to the room view, not into the game', async () => {
+    const { host, roomCode } = await startTwoPlayerGame()
+    const late = await connectClient()
+    const joined = waitFor(host, 'player_joined')
+    late.emit('join_room', { roomCode })
+    await joined
+
+    const backToRoom = waitFor(late, 'next_game_lead', 5000)
+    const noFull = waitFor(late, 'full_state', 600)
+    late.emit('sync_me', { roomCode })
+    await backToRoom
+    await expect(noFull).rejects.toThrow(/timeout/)
+  }, 15000)
+
   test('a stale room code in the URL is corrected to the seat you actually hold', async () => {
     const { guest, roomCode } = await startTwoPlayerGame()
     guest.disconnect()

@@ -28,7 +28,7 @@ const route = useRoute()
 const store = useGameStore()
 const { connect } = useSocket()
 const { players, playerNames, play, pass, boxerMove } = useGame()
-const { leaveRoom, roomCode, setupListeners, setManaged } = useRoom()
+const { leaveRoom, roomCode, setupListeners, setManaged, requestSync } = useRoom()
 
 // 托管状态跟着全桌广播走，刷新/重连后也能正确反映。
 const iAmManaged = computed(() => !!players.value.find(p => p.id === store.myId)?.managed)
@@ -41,6 +41,8 @@ onMounted(() => {
   // exists and BOTH room + game listeners are registered (setupListeners is idempotent).
   connect()
   setupListeners()
+  // 进入对局页主动要一次状态：手牌/桌面/轮次即使错过事件也能补齐
+  requestSync()
 })
 
 function onPlay(cards: Card[]) { play(cards) }

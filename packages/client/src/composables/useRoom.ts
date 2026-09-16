@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { useSocket } from './useSocket'
+import { useSocket, roomCodeFromPath } from './useSocket'
 import { useGame } from './useGame'
 import { useGameStore } from '@/stores/game'
 import type { PlayerInfo, ChatMessage } from '@/types'
@@ -50,6 +50,15 @@ export function useRoom() {
   function setManaged(managed: boolean) {
     socket.value?.emit('set_managed', { managed })
   }
+  /**
+   * Ask the server for the state of my seat. Fired whenever the room/game view mounts (and after a
+   * reconnect), so a client that missed an event — or just landed on a screen — is always in step
+   * and never needs a manual browser refresh.
+   */
+  function requestSync() {
+    const code = roomCode.value || roomCodeFromPath(window.location.pathname)
+    socket.value?.emit('sync_me', code ? { roomCode: code } : {})
+  }
   function addAI() { socket.value?.emit('add_ai') }
   function fillAI() { socket.value?.emit('fill_ai') }
   function removeAI(id: string) { socket.value?.emit('remove_ai', { playerId: id }) }
@@ -66,6 +75,10 @@ export function useRoom() {
   }
 
   function setupListeners() {
+    // Don't latch before there is a socket: calling this early (e.g. from App's setup, which runs
+    // before any view creates the connection) used to set the flag with nothing registered, so the
+    // later, real call was skipped and the room/game events had no handler at all.
+    if (!socket.value) return
     if (listenersSetup) return
     listenersSetup = true
     setupGameListeners()
@@ -102,10 +115,12 @@ export function useRoom() {
       const who = name || players.value.find(p => p.id === playerId)?.name
       if (who) useGameStore().pushNotice(`${who} 上线了`)
     })
-    socket.value?.on('game_started', ({ myId: id }: any) => {
+    socket.value?.on('game_started', ({ myId: id, roomCode: code }: any) => {
       if (id) myId.value = id
+      // 用房号跳转不能拿本地状态（在大厅时它是空的）——服务端现在会随事件带上房号
+      if (code) roomCode.value = code
       inGame.value = true
-      router.push(`/game/${roomCode.value}`)
+      if (roomCode.value) router.push(`/game/${roomCode.value}`)
     })
     socket.value?.on('next_game_lead', () => {
       rlog('next_game_lead')
@@ -138,5 +153,5 @@ export function useRoom() {
     listenersSetup = false
   }
 
-  return { roomCode, players, myId, inGame, createRoom, joinRoom, leaveRoom, startGame, setManaged, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
+  return { roomCode, players, myId, inGame, createRoom, joinRoom, leaveRoom, startGame, setManaged, requestSync, addAI, fillAI, removeAI, setupListeners, resetRoom, refreshRoom }
 }
