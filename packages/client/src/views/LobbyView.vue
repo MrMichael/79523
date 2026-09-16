@@ -50,7 +50,6 @@ import RoomList from '@/components/lobby/RoomList.vue'
 import UserList from '@/components/lobby/UserList.vue'
 import Leaderboard from '@/components/lobby/Leaderboard.vue'
 import AdminPanel from '@/components/lobby/AdminPanel.vue'
-import SoundToggle from '@/components/common/SoundToggle.vue'
 
 const auth = useAuthStore()
 const router = useRouter()

@@ -15,8 +15,6 @@ const { fakeSocket, handlers } = vi.hoisted(() => {
 })
 
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => fakeSocket), Socket: class {} }))
-const { play } = vi.hoisted(() => ({ play: vi.fn() }))
-vi.mock('../../src/audio', () => ({ play }))
 vi.mock('vue-router', () => ({
   useRouter: vi.fn(() => ({ push: vi.fn(), currentRoute: { value: { params: { code: 'TEST' } } } })),
 }))
@@ -169,34 +167,5 @@ describe('useGame event wiring (real handlers)', () => {
     expect(store.currentPlayerId).toBe('p2')
     expect(game.players.value.find(p => p.id === 'p1')!.cardCount).toBe(2)
     expect(game.players.value.find(p => p.id === 'p2')!.boxerWins).toBe(2)
-  })
-
-  it('plays a sound for each table event', () => {
-    fire('your_turn', { timeout: 30, hand: [], deckCount: 10 })
-    expect(play).toHaveBeenLastCalledWith('yourTurn')
-    fire('play_made', { playerId: 'x', nextPlayerId: 'me', tableCards: [], play: { type: 'single', cards: [c(Suit.Spade, Rank.Five)] } })
-    expect(play).toHaveBeenLastCalledWith('play')
-    fire('pass_made', { playerId: 'x', nextPlayerId: 'me' })
-    expect(play).toHaveBeenLastCalledWith('pass')
-    fire('round_result', { winnerId: 'x', scoreCards: [], scores: [], playerHandSizes: [] })
-    expect(play).toHaveBeenLastCalledWith('score')
-    fire('boxer_reveal', { moves: {} })
-    expect(play).toHaveBeenLastCalledWith('boxerPunch')
-    fire('boxer_eliminated', { playerId: 'x' })
-    expect(play).toHaveBeenLastCalledWith('boxerOut')
-    fire('boxer_champion', { playerId: 'x', scores: [] })
-    expect(play).toHaveBeenLastCalledWith('boxerChampion')
-  })
-
-  it('plays the win jingle when I finish first, the lose jingle otherwise', () => {
-    fire('game_started', {
-      hand: [], deckCount: 10, leadPlayerId: 'me', myId: 'me', playerNames: {},
-      players: [{ id: 'me', score: 0 }, { id: 'other', score: 0 }],
-    })
-    fire('game_over', { scores: [{ id: 'me', totalScore: 50 }, { id: 'other', totalScore: 10 }] })
-    expect(play).toHaveBeenLastCalledWith('gameWin')
-
-    fire('game_over', { scores: [{ id: 'other', totalScore: 50 }, { id: 'me', totalScore: 10 }] })
-    expect(play).toHaveBeenLastCalledWith('gameLose')
   })
 })

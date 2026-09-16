@@ -22,8 +22,6 @@ function startCountdown(store: ReturnType<typeof useGameStore>) {
   }, 1000)
 }
 
-import { play as playSfx } from '@/audio'
-
 function stopCountdown() {
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
 }
@@ -97,7 +95,6 @@ export function useGame() {
 
     socket.value?.on('your_turn', ({ timeout, hand, deckCount, tableCards }: any) => {
       clog('your_turn', { hand: hand?.length, deck: deckCount })
-      playSfx('yourTurn')
       store.clearSelection()
       store.isMyTurn = true
       store.timeLeft = timeout ?? 30
@@ -108,25 +105,23 @@ export function useGame() {
       startCountdown(store)
     })
 
-    socket.value?.on('play_made', ({ playerId, nextPlayerId, tableCards, play: move }: any) => {
-      playSfx('play')
+    socket.value?.on('play_made', ({ playerId, nextPlayerId, tableCards, play }: any) => {
       store.tableCards = tableCards
-      store.tablePlays.push({ playerId, cards: move?.cards || [] })
+      store.tablePlays.push({ playerId, cards: play?.cards || [] })
       store.isMyTurn = false
-      store.lastPlayType = move?.type || ''
-      store.lastPlayedCards = move?.cards || []
+      store.lastPlayType = play?.type || ''
+      store.lastPlayedCards = play?.cards || []
       store.lastPlayPlayer = playerNames.value[playerId] || playerId?.slice(0, 4) || ''
       stopCountdown()
       if (nextPlayerId) store.currentPlayerId = nextPlayerId
       if (playerId === store.myId) {
-        store.removeFromHand(move?.cards || [])
+        store.removeFromHand(play?.cards || [])
       }
       const p = players.value.find(p => p.id === playerId)
-      if (p) p.cardCount = Math.max(0, p.cardCount - (move?.cards?.length || 0))
+      if (p) p.cardCount = Math.max(0, p.cardCount - (play?.cards?.length || 0))
     })
 
     socket.value?.on('pass_made', ({ playerId, nextPlayerId }: any) => {
-      playSfx('pass')
       store.clearSelection()
       store.isMyTurn = false
       store.lastPassPlayer = playerNames.value[playerId] || playerId?.slice(0, 4) || ''
@@ -146,7 +141,6 @@ export function useGame() {
     })
 
     socket.value?.on('round_result', ({ winnerId, scoreCards, scores: newScores, playerHandSizes }: any) => {
-      playSfx('score')
       store.clearSelection()
       const updatedScores: Record<string, number> = { ...store.scores }
       for (const s of newScores) updatedScores[s.id] = s.score
@@ -174,8 +168,6 @@ export function useGame() {
       store.isMyTurn = false
       store.gameOver = true
       store.finalRankings = finalScores
-      // Win/lose jingle — `finalScores` is ranked best-first.
-      playSfx(finalScores?.[0]?.id === store.myId ? 'gameWin' : 'gameLose')
     })
 
     // ── Boxer events ──
@@ -194,13 +186,11 @@ export function useGame() {
     })
 
     socket.value?.on('boxer_reveal', ({ moves }: any) => {
-      playSfx('boxerPunch')
       store.boxerMoves = moves
       store.boxerPhase = 'reveal'
     })
 
     socket.value?.on('boxer_eliminated', ({ playerId }: any) => {
-      playSfx('boxerOut')
       store.boxerSurvivors = store.boxerSurvivors.filter(id => id !== playerId)
       if (playerId === store.myId) store.boxerPhase = 'eliminated'
     })
@@ -251,7 +241,6 @@ export function useGame() {
 
     socket.value?.on('boxer_champion', ({ playerId, scores }: any) => {
       clog('boxer_champion', playerId)
-      playSfx('boxerChampion')
       store.boxerWinnerId = playerId
       if (scores) {
         const updated: Record<string, number> = {}
