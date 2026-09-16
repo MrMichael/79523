@@ -65,6 +65,10 @@ export interface BoxerState {
   resolveLocked?: boolean
   /** Index of the tied score-group being resolved when the boxer state is reused for ranking tiebreaks. */
   tieGroupIndex?: number
+  /** Why this tiebreak runs: a 拳王 tie (most wins) or a score-ranking tie. */
+  tiebreakKind?: 'boxer' | 'ranking'
+  /** Every elimination round of the current tiebreak, in order — used to rank the losers. */
+  eliminationRounds?: string[][]
 }
 
 export interface GamePlayer {

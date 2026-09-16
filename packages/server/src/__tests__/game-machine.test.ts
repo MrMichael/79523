@@ -16,6 +16,7 @@ import {
   verifyScoreTotal,
   getScoreTieGroups,
   removeGamePlayer,
+  applyTiebreakResult,
 } from '../game-machine'
 
 // ---------------------------------------------------------------------------
@@ -2184,5 +2185,36 @@ describe('removeGamePlayer (断线踢出后游戏不再卡死)', () => {
   test('unknown player id is a no-op', () => {
     const game = makeGame({ players: [gp('p1')] })
     expect(removeGamePlayer(game, 'ghost')).toEqual({ removed: false, needsResume: false })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// applyTiebreakResult — 决胜结果（排位 / 拳王）
+// ---------------------------------------------------------------------------
+
+describe('applyTiebreakResult', () => {
+  test('排位决胜：名次按淘汰轮次排出完整顺序，且不计拳王胜场', () => {
+    const game = initGame(['a', 'b', 'c', 'd'])
+    for (const p of game.players) p.score = 10 // 四人同分
+
+    // 第1轮淘汰 b、d；第2轮淘汰 c；a 是最后的胜者
+    applyTiebreakResult(game, 'ranking', 'a', [['b', 'd'], ['c']])
+
+    // 名次：冠军 a 第一；越晚被淘汰名次越好；同轮按座位序（b 在 d 前）
+    const finalOrder = [...game.players]
+      .sort((x, y) => y.score - x.score || x.tiebreakOrder - y.tiebreakOrder)
+      .map(p => p.id)
+    expect(finalOrder).toEqual(['a', 'c', 'b', 'd'])
+
+    // 关键回归：排位决胜不是拳王胜场，否则会污染拳王榜、还会造出假拳王
+    expect(game.players.map(p => p.boxerWins)).toEqual([0, 0, 0, 0])
+    expect(game.players.some(p => p.hasBoxerBadge)).toBe(false)
+  })
+
+  test('拳王决胜：胜者拿徽章和一次拳王胜场', () => {
+    const game = initGame(['a', 'b'])
+    applyTiebreakResult(game, 'boxer', 'b', [])
+    expect(game.players[1]).toMatchObject({ boxerWins: 1, hasBoxerBadge: true })
+    expect(game.players[0]).toMatchObject({ boxerWins: 0, hasBoxerBadge: false })
   })
 })

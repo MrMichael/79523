@@ -287,7 +287,56 @@ export function getScoreTieGroups(game: ServerGame): { score: number; playerIds:
     .map(([score, ids]) => ({ score, playerIds: ids }))
 }
 
-/** All non-finished players who should participate in boxer rounds */
+/**
+ * Close out a boxer tiebreak.
+ *
+ * - `'boxer'`: the tie was about who has the most boxer wins → the winner takes the badge and a
+ *   win (this is a real 拳王 result).
+ * - `'ranking'`: the tie was about equal SCORES → the winner only decides the ORDER. Awarding a
+ *   boxer win here used to inflate the persistent 拳王 stat (and could crown a false 拳王), while
+ *   everyone except the champion got a rank by array order — i.e. the "排位决胜" decided nothing
+ *   for ranks 2..n.
+ *
+ * Ranking order now follows the knockout: champion first, then each elimination round from last to
+ * first (surviving longer = better). Players eliminated in the same round are genuinely tied, so the
+ * seat order breaks it to keep the result deterministic.
+ */
+export function applyTiebreakResult(
+  game: ServerGame,
+  kind: 'boxer' | 'ranking',
+  championId: string,
+  eliminationRounds: string[][],
+): void {
+  const champion = game.players.find(p => p.id === championId)
+  if (!champion) return
+
+  if (kind === 'boxer') {
+    champion.hasBoxerBadge = true
+    champion.boxerWins++
+    return
+  }
+
+  const order: string[] = [championId]
+  for (const round of [...eliminationRounds].reverse()) {
+    for (const p of game.players) {
+      if (round.includes(p.id) && !order.includes(p.id)) order.push(p.id)
+    }
+  }
+  // Anything the elimination log missed keeps a deterministic tail rather than a stale 0.
+  for (const p of game.players) {
+    if (p.score === champion.score && !order.includes(p.id)) order.push(p.id)
+  }
+  order.forEach((id, i) => {
+    const p = game.players.find(x => x.id === id)
+    if (p) p.tiebreakOrder = i
+  })
+}
+
+/**
+ * Everyone at the table contests the remaining score cards — the design has the boxer hand out the
+ * 未出计分牌, and it does not exclude players who already went out. (The ranking tiebreaks further
+ * down are the ones restricted to the tied group.)
+ */
 export function getBoxerParticipants(game: ServerGame): string[] {
   return game.players.map(p => p.id)
 }

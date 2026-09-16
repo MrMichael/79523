@@ -4,7 +4,7 @@ import type { Socket } from 'socket.io'
 import type { ClientEvents, ServerEvents, BoxerState } from './types'
 import { createPlayer, createAIPlayer, createPlayerForAccount, getPlayer, setPlayerReady, setPlayerConnected, setPlayerManaged, resetPlayerReady } from './player'
 import { createRoom, getRoom, joinRoom, leaveRoom, getAllRooms } from './room'
-import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer } from './game-machine'
+import { initGame, handlePlay, handlePass, settleGame, getBoxerScoreCards, getBoxerParticipants, executeSurrenderSwap, verifyScoreTotal, removeCardFromHand, getScoreTieGroups, removeGamePlayer, applyTiebreakResult } from './game-machine'
 import { Rank, calculateScore, isScoreCard, resolveRound, getWinner, BoxerMove, compareCards, identify, choosePlay, chooseBoxerMove, chooseSurrenderGive, chooseSurrenderPick, chooseSurrenderReturn, getSmallestCard } from '@79523/engine'
 import { verifyToken } from './auth'
 import { findUserById } from './db'
@@ -234,6 +234,8 @@ function resolveBoxerChampion(io: WsServer, roomCode: string, game: NonNullable<
       scoreCards: [], currentCardIndex: 0,
       currentSurvivors: champions.map(p => p.id),
       currentMoves: new Map(), round: 0,
+      tiebreakKind: 'boxer',
+      eliminationRounds: [],
     }
     setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), boxerDelayMs())
     return
@@ -267,6 +269,8 @@ function resolveScoreRankings(io: WsServer, roomCode: string, game: NonNullable<
     currentSurvivors: [...group.playerIds],
     currentMoves: new Map(), round: 0,
     tieGroupIndex: startGroupIdx,
+    tiebreakKind: 'ranking',
+    eliminationRounds: [],
   }
   setTimeout(() => startBoxerTiebreakRound(io, roomCode, game), boxerDelayMs())
 }
@@ -277,6 +281,7 @@ function startBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNullab
   bs.currentMoves.clear()
   bs.round = 0
   bs.resolveLocked = false
+  bs.eliminationRounds = []
   const room = getRoom(roomCode)
   const gameScores: Record<string, number> = {}
   const boxerWins: Record<string, number> = {}
@@ -320,36 +325,33 @@ function resolveBoxerTiebreakRound(io: WsServer, roomCode: string, game: NonNull
   for (const [id, move] of bs.currentMoves) moveMap[id] = move
   io.to(roomCode).emit('boxer_reveal', { moves: moveMap })
 
+  // Remember who went out in which round: that is what ranks the losers of a score tiebreak
+  // (surviving longer = better rank). Same-round losers are genuinely tied.
+  const eliminatedNow = bs.currentSurvivors.filter(id => !survivors.includes(id))
+  if (eliminatedNow.length > 0) bs.eliminationRounds = [...(bs.eliminationRounds ?? []), eliminatedNow]
+
   if (survivors.length === 1) {
     const championId = getWinner(survivors)
-    // Assign tiebreak order within score group: winner=0, others=1,2...
-    const groupScore = game.players.find(p => p.id === survivors[0])!.score
-    let order = 0
-    for (const p of game.players) {
-      if (p.score === groupScore) {
-        p.tiebreakOrder = p.id === championId ? 0 : ++order
-      }
-    }
-    const champion = game.players.find(p => p.id === championId)!
-    champion.hasBoxerBadge = true
-    champion.boxerWins++
+    // A 拳王 tie grants the badge + a win; a score-ranking tie only decides the order.
+    applyTiebreakResult(game, bs.tiebreakKind ?? 'boxer', championId, bs.eliminationRounds ?? [])
     const room = getRoom(roomCode)
-    const roomPlayer = room?.players.find(p => p.id === championId)
-    if (roomPlayer) roomPlayer.boxerWins++
+    if (bs.tiebreakKind !== 'ranking') {
+      const roomPlayer = room?.players.find(p => p.id === championId)
+      if (roomPlayer) roomPlayer.boxerWins++
+    }
 
     io.to(roomCode).emit('boxer_champion', {
       playerId: championId,
       scores: game.players.map(p => ({ id: p.id, score: p.score })),
     })
 
-    log('BOXER_CHAMPION', roomCode, championId)
+    log('BOXER_CHAMPION', roomCode, `${championId} (${bs.tiebreakKind ?? 'boxer'})`)
     setTimeout(() => {
       const nextIdx = bs.tieGroupIndex !== undefined ? bs.tieGroupIndex + 1 : 0
       resolveScoreRankings(io, roomCode, game, nextIdx)
     }, boxerDelayMs())
   } else {
-    const eliminated = bs.currentSurvivors.filter(id => !survivors.includes(id))
-    for (const id of eliminated) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
+    for (const id of eliminatedNow) io.to(roomCode).emit('boxer_eliminated', { playerId: id })
     bs.currentSurvivors = survivors
     bs.currentMoves.clear()
     bs.resolveLocked = false
