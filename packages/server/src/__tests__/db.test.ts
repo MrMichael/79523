@@ -42,6 +42,17 @@ describe('db layer', () => {
     expect(m.get(b.id)).toBeUndefined()
   })
 
+  test('deleting a user also drops their play log rows', () => {
+    const a = createUser('gone', 'h')
+    addGameLog(a.id, Date.now(), 300, 2, 1)
+    expect(recentTotals(Date.now() - 60_000).get(a.id)).toBeDefined()
+
+    deleteUser(a.id)
+    expect(findUserById(a.id)).toBeUndefined()
+    // 删号后 24h 台账不能留着——否则统计表和"近24小时"榜会一直背着幽灵数据
+    expect(recentTotals(Date.now() - 60_000).get(a.id)).toBeUndefined()
+  })
+
   test('reset + role + delete + countAdmins', () => {
     const a = createUser('a', 'h')
     addStats(a.id, 4, 4)

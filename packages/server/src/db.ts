@@ -83,8 +83,15 @@ export function listUsers(): UserRow[] {
   return db.prepare('SELECT * FROM users ORDER BY created_at ASC').all() as UserRow[]
 }
 export function deleteUser(id: string): void {
-  db.prepare('DELETE FROM users WHERE id = ?').run(id)
+  // play_log has no foreign key, so clean it up explicitly — otherwise every deleted account keeps
+  // its 24h play-time / win rows forever (and the table grows without bound).
+  dropUserData(id)
 }
+
+const dropUserData = db.transaction((id: string) => {
+  db.prepare('DELETE FROM play_log WHERE user_id = ?').run(id)
+  db.prepare('DELETE FROM users WHERE id = ?').run(id)
+})
 export function setRole(id: string, role: Role): void {
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id)
 }
